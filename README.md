@@ -150,6 +150,7 @@ src/my_siem/   the package (entry point: my_siem.main:main)
   ssh/         the `ssh` command: sshd log parsing, network tracking, monitor, flags
 config/        example configs, all values at their defaults
 logs/          log output when run with --path . (git-ignored)
+frontend/      React + Vite + TypeScript UI (oxlint, vitest)
 tests/         pytest suite
 .githooks/     local git hooks
 .github/       CI workflows, issue/PR templates, rulesets
@@ -167,6 +168,9 @@ tests/         pytest suite
 | `just check-lint`      | Lint `src` and `tests` with ruff, auto-fixing       |
 | `just check-typecheck` | Type-check `src` with mypy                          |
 | `just check-test`      | Run the pytest suite                                |
+| `just frontend-install` | Install the frontend dependencies (needs Node 24)  |
+| `just frontend-dev`    | Start the Vite dev server on port 3000              |
+| `just frontend-check`  | Lint, test and build the frontend, as CI does       |
 | `just set-githooks`    | Use `.githooks/` as the git hooks directory         |
 
 ### Quality Assurance
