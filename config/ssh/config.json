@@ -1,0 +1,10 @@
+{
+  "ports": "22",
+  "iface": null,
+  "auth_log": "auto",
+  "read_auth_log": true,
+  "sniff": true,
+  "fail_threshold": 5,
+  "conn_threshold": 20,
+  "window": 60
+}

@@ -20,6 +20,10 @@ result-*
 # Files
 *.log
 
+# Runtime logs written by `my_siem --path .`
+logs/*
+!logs/.gitkeep
+
 # Local course material, never pushed
 no_push/
 tmp/

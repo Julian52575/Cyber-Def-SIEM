@@ -18,15 +18,111 @@ git clone <repo-url> && cd Cyber-Def-SIEM
 just sync          # create .venv and install dependencies, dev tools included
 just set-githooks  # enable the repo's git hooks
 just check         # lint, type-check and test
-just run           # run the SIEM
+just run --path . --stdout ssh   # track SSH connections, config and logs in the repo
 ```
 
-> Sending packets with Scapy may need root or the `CAP_NET_RAW` capability.
+> Sniffing packets with Scapy needs root or the `CAP_NET_RAW` capability.
+
+### Usage
+
+```
+my_siem [--stdout] [--no-log] [--path PATH] COMMAND [command flags]
+```
+
+| Flag          | Description                                                     |
+| ------------- | --------------------------------------------------------------- |
+| `-h, --help`  | Show usage (`my_siem ssh --help` for the command's own flags)   |
+| `--stdout`    | Also print events to stdout (default: off)                      |
+| `--no-log`    | Do not write events to log files (default: off)                 |
+| `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
+
+General flags may go before or after the command. Command-line flags override the config files.
+
+### Configuration and logs
+
+```
+<path>/
+├── config/
+│   ├── config.json        general config
+│   └── <command>/config.json
+└── logs/
+    └── <command>/<command>.jsonl
+```
+
+All config files are JSON and optional: a missing file prints a warning and the built-in
+defaults are used. Keys left out of a file keep their default; unknown keys are warned
+about; a malformed file or wrong value type stops my_siem with an error.
+Examples with every key at its default are in [`config/`](config/).
+
+`config/config.json`:
+
+| Key      | Default | Description                       |
+| -------- | ------- | --------------------------------- |
+| `stdout` | `false` | Also print events to stdout       |
+| `log`    | `true`  | Write events to the log file      |
+
+Log folders are created when missing. An existing log file is appended to, never
+overwritten, so history from earlier runs stays in the same file (the run's first event,
+`siem.log.opened`, has `siem.log.resumed: true`). Log files are created with mode `0640`.
+
+### Tracking SSH connections
+
+```sh
+sudo .venv/bin/my_siem ssh --ports 22,221-229
+```
+
+`config/ssh/config.json` (each key also has a flag, shown in `my_siem ssh --help`):
+
+| Key              | Default  | Description                                                    |
+| ---------------- | -------- | -------------------------------------------------------------- |
+| `ports`          | `"22"`   | SSH ports, as a list (`[22, 2222]`) or a string (`"22,221-229"`) |
+| `iface`          | `null`   | Interface to sniff on (`null`: all)                            |
+| `auth_log`       | `"auto"` | `"auto"` (auth.log, else journald), `"journald"`, or a file path |
+| `read_auth_log`  | `true`   | Read sshd logs (`--no-auth-log` to disable)                    |
+| `sniff`          | `true`   | Sniff network traffic (`--no-sniff` to disable)                |
+| `fail_threshold` | `5`      | Failed logins from one IP that raise an alert                  |
+| `conn_threshold` | `20`     | New connections from one IP that raise an alert                |
+| `window`         | `60`     | Alert window, in seconds                                       |
+
+Two sources run side by side:
+
+- **sshd logs** (`/var/log/auth.log`, or journald when it is missing or with `--journal`):
+  successful and failed logins, invalid users and logouts, with user and source address.
+- **network** (Scapy): every TCP connection to the given ports, with duration, packets
+  and bytes. It also sees SSH daemons whose logs are not on this host, such as containers.
+
+Alerts are raised when one IP makes `fail_threshold` failed logins
+or `conn_threshold` new connections within `window` seconds.
+
+### Output format
+
+Every event is written as one JSON line following the
+[OpenTelemetry log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/)
+(`timestamp`, `severity_number`, `severity_text`, `body`, `attributes`, `resource`, `event_name`).
+Attributes use the OTel semantic conventions (`client.address`, `server.port`, `user.name`,
+`process.pid`, …); SIEM-specific ones are namespaced under `siem.`.
+
+| `event_name`                                        | Severity |
+| --------------------------------------------------- | -------- |
+| `siem.ssh.login_success`, `siem.ssh.logout`         | INFO     |
+| `siem.ssh.login_failure`, `siem.ssh.invalid_user`   | WARN     |
+| `siem.ssh.connection.opened`, `.closed`             | INFO     |
+| `siem.alert.ssh_bruteforce`, `siem.alert.ssh_conn_flood` | ERROR |
+| `siem.source.started` / `siem.source.failed`        | INFO / ERROR |
+| `siem.log.opened`                                   | INFO     |
+| `siem.config.missing`, `siem.config.unknown_key`    | WARN     |
+
+```sh
+jq 'select(.severity_text == "ERROR")' /etc/my_siem/logs/ssh/ssh.jsonl   # only alerts and failures
+```
 
 ### Project layout
 
 ```
 src/my_siem/   the package (entry point: my_siem.main:main)
+  ssh/         the `ssh` command: sshd log parsing, network tracking, monitor, flags
+config/        example configs, all values at their defaults
+logs/          log output when run with --path . (git-ignored)
 tests/         pytest suite
 .githooks/     local git hooks
 .github/       CI workflows, issue/PR templates, rulesets
