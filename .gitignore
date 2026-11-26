@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# uv / venv
+.venv/
+
+# pytest / ruff
+.pytest_cache/
+.ruff_cache/
+
+# Nix
+.direnv/
+result
+result-*
+
+# Files
+*.log
+
+# Local course material, never pushed
+no_push/
+tmp/

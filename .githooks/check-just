@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run `just check` (lint, typecheck, test) before each commit.
+# Opt out with  git config hooks.runChecks false
+# Local feedback only -- `git commit --no-verify` skips it.
+# Checks the working tree, not just the staged content.
+set -euo pipefail
+
+[ "$(git config --get hooks.runChecks || true)" = "false" ] && exit 0
+
+if ! command -v just >/dev/null 2>&1; then
+  echo "check-just: 'just' not found. Install it, or run inside 'nix-shell -p uv just'." >&2
+  exit 1
+fi
+
+# check-lint runs `ruff --fix`: fixes land in the working tree, not in the
+# commit, so a commit that passes only thanks to them must be stopped.
+# Untracked files count too: a new file is not in `git diff`.
+snapshot() {
+  { git diff --no-ext-diff; git ls-files -oz --exclude-standard | xargs -0r cat; } | git hash-object --stdin
+}
+before="$(snapshot)"
+
+if ! just check; then
+  echo "check-just: 'just check' failed. Fix the errors above (see README > Quality Assurance)." >&2
+  exit 1
+fi
+
+after="$(snapshot)"
+if [ "$before" != "$after" ]; then
+  echo "check-just: ruff auto-fixed some files. Review with 'git diff', stage them, and commit again." >&2
+  exit 1
+fi

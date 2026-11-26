@@ -1,0 +1,25 @@
+[project]
+name = "my_siem"
+version = "0.1.0"
+description = "Security Information and Event Management"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+	"scapy >= 2.8.0"
+]
+
+[dependency-groups]
+dev = [
+	"ruff>=0.17.6",
+	"pytest>=9.2.0",
+	"mypy>=v2.4.1"
+]
+
+[project.scripts]
+my_siem = "my_siem.main:main"
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
