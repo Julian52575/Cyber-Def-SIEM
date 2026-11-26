@@ -37,7 +37,7 @@ my_siem [--stdout] [--no-log] [--path PATH] [--api [--api-host HOST] [--api-port
 | `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
 | `--api`       | Serve live monitoring data over HTTP (see [API](#api))          |
 | `--api-host HOST` | Address the API listens on (default: `127.0.0.1`)           |
-| `--api-port PORT` | Port the API listens on (default: `8000`)                   |
+| `--api-port PORT` | Port the API listens on (default: `12125`)                  |
 
 General flags may go before or after the command. Command-line flags override the config files.
 
@@ -65,8 +65,8 @@ Examples with every key at its default are in [`config/`](config/).
 | `log`    | `true`  | Write events to the log file      |
 | `api`    | `false` | Serve the API (as `--api`)        |
 | `api_host` | `"127.0.0.1"` | Address the API listens on |
-| `api_port` | `8000`  | Port the API listens on         |
-| `api_cors_origins` | `["http://localhost:3000"]` | Browser origins allowed to call the API (the frontend) |
+| `api_port` | `12125` | Port the API listens on         |
+| `api_cors_origins` | `["http://localhost:3000", "http://127.0.0.1:3000"]` | Browser origins allowed to call the API (the frontend) |
 
 ### API
 
@@ -75,7 +75,7 @@ method other than `GET`, `HEAD` or `OPTIONS` (CORS preflight) gets `405`, on eve
 
 ```sh
 sudo .venv/bin/my_siem --api ssh
-curl localhost:8000/ssh
+curl localhost:12125/ssh
 ```
 
 | Endpoint        | Returns                                                                 |

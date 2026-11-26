@@ -124,8 +124,11 @@ class GeneralConfig:
     api: bool = False
     # Loopback by default: the API exposes users and addresses.
     api_host: str = "127.0.0.1"
-    api_port: int = 8000
-    api_cors_origins: tuple[str, ...] = ("http://localhost:3000",)
+    api_port: int = 12125
+    api_cors_origins: tuple[str, ...] = (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    )
 
     def __post_init__(self) -> None:
         check_port(self.api_port)
