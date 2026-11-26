@@ -10,13 +10,15 @@ from fastapi.testclient import TestClient
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
 from my_siem import main as cli
-from my_siem.api import create_app
+from my_siem.api import ApiServer, create_app
 from my_siem.detect import RateDetector
 from my_siem.ssh.log import AuthEvent, AuthKind
 from my_siem.ssh.monitor import SshMonitorConfig, new_state, report_auth, report_conn
 from my_siem.ssh.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.state import SshState
 from my_siem.telemetry import EventLogger, event_logger, make_provider
+
+HOSTS = ["testserver"]
 
 
 def test_ssh_endpoint_reports_logins_connections_and_alerts() -> None:
@@ -36,7 +38,7 @@ def test_ssh_endpoint_reports_logins_connections_and_alerts() -> None:
     ):
         report_conn(out, state, event, openings)
 
-    client = TestClient(create_app("ssh", state.snapshot, []))
+    client = TestClient(create_app({"ssh": state.snapshot}, HOSTS))
     body = client.get("/ssh").json()
 
     assert body["config"]["ports"] == [22, 2222]
@@ -53,48 +55,38 @@ def test_ssh_endpoint_reports_logins_connections_and_alerts() -> None:
     assert body["recent_alerts"][0]["name"] == "ssh_bruteforce"
 
 
-def test_healthz_and_cors_only_for_listed_origins() -> None:
-    app = create_app("ssh", SshState({}).snapshot, ["http://localhost:3000"])
-    client = TestClient(app)
+def test_healthz_only_answers_allowed_hosts() -> None:
+    client = TestClient(
+        create_app({"ssh": SshState({}).snapshot}, ["localhost", "::1"])
+    )
 
-    ok = client.get("/healthz", headers={"Origin": "http://localhost:3000"})
-    other = client.get("/healthz", headers={"Origin": "http://evil.example"})
+    ok = client.get("http://localhost:12125/healthz")
+    v6 = client.get("http://[::1]:12125/healthz")
+    rebound = client.get("http://evil.example/healthz")
 
-    assert ok.json() == {"status": "ok", "command": "ssh"}
-    assert ok.headers["access-control-allow-origin"] == "http://localhost:3000"
-    assert "access-control-allow-origin" not in other.headers
+    assert ok.json() == {"status": "ok", "commands": ["ssh"]}
+    assert v6.status_code == 200
+    assert rebound.status_code == 400
 
 
 def test_every_route_is_read_only() -> None:
-    app = create_app("ssh", SshState({}).snapshot, [])
+    app = create_app({"ssh": SshState({}).snapshot}, HOSTS)
 
     for route in app.routes:
         assert getattr(route, "methods", set()) <= {"GET", "HEAD"}, route
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
-@pytest.mark.parametrize("path", ["/ssh", "/healthz", "/docs", "/nowhere"])
+@pytest.mark.parametrize(
+    "path", ["/ssh", "/healthz", "/docs", "/ui/ssh", "/ui/ssh/stream", "/nowhere"]
+)
 def test_writes_are_refused_everywhere(method: str, path: str) -> None:
-    client = TestClient(create_app("ssh", SshState({}).snapshot, []))
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
 
     res = client.request(method, path)
 
     assert res.status_code == 405
     assert res.json() == {"detail": "read-only API"}
-
-
-def test_cors_preflight_still_works() -> None:
-    app = create_app("ssh", SshState({}).snapshot, ["http://localhost:3000"])
-    res = TestClient(app).options(
-        "/ssh",
-        headers={
-            "Origin": "http://localhost:3000",
-            "Access-Control-Request-Method": "GET",
-        },
-    )
-
-    assert res.status_code == 200
-    assert res.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 def test_api_flag_serves_the_running_command(
@@ -107,7 +99,7 @@ def test_api_flag_serves_the_running_command(
         log = tmp_path / "logs" / "ssh" / "ssh.jsonl"
         started = [json.loads(line) for line in log.read_text().splitlines()][-1]
         url = started["attributes"]["url.full"]
-        with urllib.request.urlopen(url, timeout=5) as res:
+        with urllib.request.urlopen(f"{url}ssh", timeout=5) as res:
             bodies.append(json.load(res))
         stop.set()
 
@@ -129,3 +121,26 @@ def test_bad_api_port_flag_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["--path", str(tmp_path), "--api", "--api-port", "70000", "ssh"])
     assert exc.value.code == 2
+
+
+def test_unwritable_log_with_api_fails_with_a_plain_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A directory where the log file should be: opening it fails like a permission error.
+    (tmp_path / "logs" / "ssh" / "ssh.jsonl").mkdir(parents=True)
+
+    with pytest.raises(SystemExit, match="cannot open log file") as exc:
+        cli.main(["--path", str(tmp_path), "--api", "--api-port", "0", "ssh"])
+
+    assert exc.value.__context__ is not None  # the OSError, not a cleanup failure
+    assert isinstance(exc.value.__context__, OSError)
+
+
+def test_api_server_stops_even_if_never_started() -> None:
+    server = ApiServer(
+        create_app({"ssh": SshState({}).snapshot}, HOSTS), "127.0.0.1", 0
+    )
+
+    server.stop()
+
+    assert server.socket.fileno() == -1

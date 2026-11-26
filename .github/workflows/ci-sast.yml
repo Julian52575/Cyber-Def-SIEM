@@ -1,6 +1,6 @@
 name: ci-sast
 
-# Static Application Security Testing with CodeQL (Python, JS/TS + workflows).
+# Static Application Security Testing with CodeQL (Python, the dashboard's JS + workflows).
 #
 #   guard            nothing runs on a draft or fork PR.
 #   codeql           scans, writes a summary, and fails on any error-severity

@@ -6,22 +6,31 @@ from typing import Any
 import pytest
 
 from my_siem import main as cli
+from my_siem.dummy.command import DummyConfig
 from my_siem.ssh.monitor import SshMonitorConfig
-from my_siem.ssh.state import SshState
 from my_siem.telemetry import INFO, EventLogger
 
 
 @pytest.fixture
-def ran(monkeypatch: pytest.MonkeyPatch) -> list[SshMonitorConfig]:
-    """Replace the ssh monitor with a stub that records its config and logs once."""
-    configs: list[SshMonitorConfig] = []
+def ran_all(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    """Replace every command's run with a stub that records its config and logs once."""
+    configs: dict[str, list[Any]] = {name: [] for name in cli.COMMANDS}
 
-    def fake_run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
-        configs.append(cfg)
-        out.emit(INFO, "test.ran", "ran")
+    for name in cli.COMMANDS:
 
-    monkeypatch.setitem(cli.COMMANDS, "ssh", replace(cli.COMMANDS["ssh"], run=fake_run))
+        def fake_run(out: EventLogger, cfg: Any, state: Any, name: str = name) -> None:
+            configs[name].append(cfg)
+            out.emit(INFO, "test.ran", "ran")
+
+        monkeypatch.setitem(
+            cli.COMMANDS, name, replace(cli.COMMANDS[name], run=fake_run)
+        )
     return configs
+
+
+@pytest.fixture
+def ran(ran_all: dict[str, list[Any]]) -> list[SshMonitorConfig]:
+    return ran_all["ssh"]
 
 
 def records(path: Path) -> list[dict[str, Any]]:
@@ -108,10 +117,78 @@ def test_bad_config_stops_with_an_error(
     assert ran == []
 
 
+def test_without_a_command_every_command_runs(
+    tmp_path: Path, ran_all: dict[str, list[Any]]
+) -> None:
+    cli.main(["--path", str(tmp_path)])
+
+    assert ran_all == {"ssh": [SshMonitorConfig()], "dummy": [DummyConfig()]}
+    for name in ("ssh", "dummy"):
+        log = tmp_path / "logs" / name / f"{name}.jsonl"
+        assert "test.ran" in [r["event_name"] for r in records(log)]
+
+
+def test_only_the_given_commands_run_each_with_its_flags(
+    tmp_path: Path, ran_all: dict[str, list[Any]]
+) -> None:
+    cli.main(["--path", str(tmp_path), "dummy", "--interval", "2"])
+
+    assert ran_all == {"ssh": [], "dummy": [DummyConfig(interval=2.0)]}
+    assert not (tmp_path / "logs" / "ssh").exists()
+
+
+def test_several_commands_with_their_own_flags(
+    tmp_path: Path, ran_all: dict[str, list[Any]]
+) -> None:
+    # "dummy" right after --iface is the interface name, not the command.
+    cli.main(
+        ["ssh", "--iface", "dummy", "--path", str(tmp_path), "dummy", "--interval", "3"]
+    )
+
+    assert ran_all["ssh"][0].iface == "dummy"
+    assert ran_all["dummy"] == [DummyConfig(interval=3.0)]
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["ssh", "ssh"], "command 'ssh' given twice"),
+        (["sshh"], "unknown command 'sshh'"),
+        (["dummy", "--ports", "22"], "unrecognized arguments: --ports"),
+    ],
+)
+def test_bad_command_lines_are_rejected(
+    tmp_path: Path,
+    ran_all: dict[str, list[Any]],
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    message: str,
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--path", str(tmp_path), *argv])
+
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+    assert ran_all == {"ssh": [], "dummy": []}
+
+
+def test_a_failing_command_stops_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def crash(out: EventLogger, cfg: Any, state: Any) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setitem(cli.COMMANDS, "ssh", replace(cli.COMMANDS["ssh"], run=crash))
+
+    # dummy never returns on its own; the run must still end.
+    with pytest.raises(RuntimeError, match="boom"):
+        cli.main(["--path", str(tmp_path)])
+
+
 def test_help_exits_cleanly(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    for flag in ("--stdout", "--no-log", "--path", "ssh"):
+    for flag in ("--stdout", "--no-log", "--path", "ssh", "dummy"):
         assert flag in out

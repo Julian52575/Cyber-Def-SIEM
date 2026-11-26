@@ -74,69 +74,20 @@ code {
   z-index: 10;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0.75rem 1rem 0.25rem;
+  padding: 0.6rem 1rem;
 }
 
-.api-bar {
+.topbar-inner {
   max-width: 72rem;
   margin: 0 auto;
-}
-
-.api-bar label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 0.25rem;
-}
-
-.api-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
 }
 
-.api-row input {
-  flex: 1 1 16rem;
-  min-width: 0;
-}
-
-input,
-select,
-button {
-  padding: 0.5rem 0.75rem;
-  font: inherit;
-  color: inherit;
-  background: var(--surface);
-  border: 1px solid var(--axis);
-  border-radius: 6px;
-}
-
-button {
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-}
-
-button.primary.active {
-  background: var(--surface);
-  color: var(--text);
-}
-
-input[aria-invalid="true"] {
-  outline: 2px solid var(--critical);
-}
-
-#api-status {
-  margin: 0.4rem 0;
+#live-status {
+  margin-left: auto;
   font-size: 0.875rem;
 }
 
@@ -146,10 +97,6 @@ main {
   max-width: 72rem;
   margin: 0 auto;
   padding: 1rem;
-}
-
-h1 {
-  margin: 0.5rem 0 1rem;
 }
 
 h3 {
@@ -165,24 +112,17 @@ h3 {
   overflow-x: auto;
 }
 
-.tabs button {
-  border: none;
+.tabs a {
+  padding: 0.5rem 0.75rem;
+  color: inherit;
+  text-decoration: none;
   border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  white-space: nowrap;
 }
 
-.tabs button[aria-selected="true"] {
+.tabs a[aria-current="page"] {
   border-bottom-color: var(--accent);
   font-weight: 600;
-}
-
-.tab-route {
-  font-size: 0.75rem;
-  font-weight: 400;
 }
 
 section > * + * {
@@ -232,8 +172,13 @@ section > * + * {
   color: var(--critical);
 }
 
-.notice {
+.notice,
+.updated {
   margin: 0;
+}
+
+.updated {
+  font-size: 0.875rem;
 }
 
 /* Status */
@@ -296,8 +241,7 @@ section > * + * {
   color: var(--text-muted);
 }
 
-.legend li,
-.tooltip-row {
+.legend li {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -310,17 +254,64 @@ section > * + * {
   flex: none;
 }
 
+/* Lines are drawn in a stretched 0-100 viewBox; labels stay HTML so they keep their size. */
 .plot {
-  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 180px auto;
+  column-gap: 0.5rem;
   margin-top: 0.75rem;
 }
 
-.plot svg,
+.plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.y-ticks {
+  position: relative;
+  min-width: 2rem;
+}
+
+.y-ticks .tick {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+}
+
+.x-ticks {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+}
+
+.tick {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A fixed viewBox scales its text: cap the growth, and scroll on phones rather than shrink. */
+.flow-wrap {
+  overflow-x: auto;
+}
+
 svg.flow {
   display: block;
   width: 100%;
+  min-width: 520px;
+  max-width: 800px;
   height: auto;
   margin-top: 0.75rem;
+}
+
+svg .grid,
+svg .axis,
+svg .line {
+  vector-effect: non-scaling-stroke;
 }
 
 svg .grid {
@@ -345,38 +336,18 @@ svg .line {
   stroke-linecap: round;
 }
 
-svg .dot {
-  stroke: var(--surface);
-  stroke-width: 2;
-}
-
-svg .crosshair {
-  stroke: var(--axis);
-  stroke-width: 1;
-}
-
-.tooltip {
-  position: absolute;
-  top: 0;
+svg .line {
+  fill: none;
   pointer-events: none;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  padding: 0.4rem 0.6rem;
-  font-size: 0.8rem;
-  white-space: nowrap;
 }
 
-.tooltip-title {
-  color: var(--text-muted);
-  margin-bottom: 0.2rem;
+svg .hover {
+  fill: transparent;
 }
 
-.tooltip-row strong {
-  margin-left: auto;
-  padding-left: 0.75rem;
-  font-variant-numeric: tabular-nums;
+svg .hover:hover {
+  fill: var(--grid);
+  fill-opacity: 0.5;
 }
 
 .bars {
@@ -410,6 +381,7 @@ svg .crosshair {
 
 .bar {
   height: 16px;
+  background: var(--series-1);
   min-width: 2px;
   max-width: calc(100% - 3.5rem);
   border-radius: 0 4px 4px 0;

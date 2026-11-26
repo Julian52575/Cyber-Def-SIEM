@@ -50,33 +50,6 @@ jobs:
       - name: Build the sdist and wheel
         run: uv build
 
-  # Lint, test and build the frontend.
-  frontend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-
   # Every Dockerfile / Containerfile tracked in the repo --
   # a new one is picked up without touching this workflow. Mounts the repo so hadolint
   # reads a root .hadolint.yaml if one exists.
@@ -156,7 +129,7 @@ jobs:
         run: pipx run zizmor==1.31.1 --format github .github/
 
   # Software-composition analysis of THIS branch: osv-scanner finds every
-  # lockfile in the repo (uv.lock, frontend/package-lock.json) and checks it against the OSV database.
+  # lockfile in the repo (uv.lock) and checks it against the OSV database.
   #
   # Gate: fails on any Critical or High advisory (CVSS >= 7), on 5 or more
   # Moderate+Low, or when the scan cannot complete -- an unknown posture is not
@@ -251,7 +224,6 @@ jobs:
     if: always()
     needs:
       - python
-      - frontend
       - dockerfile-lint
       - workflow-lint
       - zizmor

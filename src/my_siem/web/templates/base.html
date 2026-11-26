@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ section.title }} · my_siem</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/live.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <strong>my_siem</strong>
+      <span class="muted">running {% for c in commands %}<code>{{ c }}</code>{{ ", " if not loop.last }}{% endfor %}</span>
+      <span id="live-status" class="muted">static page: JavaScript is off</span>
+    </div>
+  </header>
+  <main>
+    <nav class="tabs" aria-label="Sections">
+      {%- for s in sections %}
+      <a href="/ui/{{ s.id }}"{% if s.id == section.id %} aria-current="page"{% endif %}>{{ s.title }}</a>
+      {%- endfor %}
+    </nav>
+    <section id="panel" data-stream="/ui/{{ section.id }}/stream">
+      {{ fragment }}
+    </section>
+  </main>
+</body>
+</html>

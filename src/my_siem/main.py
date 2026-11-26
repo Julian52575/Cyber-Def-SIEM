@@ -1,9 +1,13 @@
 import argparse
+import queue
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
+
+from opentelemetry.sdk._logs import LoggerProvider
 
 from my_siem.api import ApiServer, create_app
 from my_siem.config import (
@@ -16,6 +20,7 @@ from my_siem.config import (
     check_port,
     load_config,
 )
+from my_siem.dummy import command as dummy
 from my_siem.ssh import cli as ssh_cli
 from my_siem.ssh.monitor import SshMonitorConfig, new_state
 from my_siem.ssh.monitor import run as run_ssh
@@ -56,6 +61,15 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         apply_flags=ssh_cli.apply_flags,
         new_state=new_state,
         run=run_ssh,
+    ),
+    "dummy": Command(
+        help="generate placeholder data (a template for new commands)",
+        add_arguments=dummy.add_arguments,
+        from_json=dummy.DummyConfig.from_json,
+        default=dummy.DummyConfig(),
+        apply_flags=dummy.apply_flags,
+        new_state=dummy.new_state,
+        run=dummy.run,
     ),
 }
 
@@ -99,7 +113,7 @@ def _add_general_flags(parser: argparse.ArgumentParser, with_defaults: bool) -> 
         "--api",
         action="store_true",
         default=default(False),
-        help="serve live monitoring data over HTTP",
+        help="serve a live dashboard and the monitoring data over HTTP",
     )
     # None so that only a flag actually given overrides the config.
     parser.add_argument(
@@ -115,112 +129,227 @@ def _add_general_flags(parser: argparse.ArgumentParser, with_defaults: bool) -> 
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parsers() -> tuple[
+    argparse.ArgumentParser, dict[str, argparse.ArgumentParser]
+]:
+    """The general parser, and one parser per command for the flags after its name."""
+    listing = "\n".join(f"  {name:<8}{c.help}" for name, c in COMMANDS.items())
     parser = argparse.ArgumentParser(
-        prog="my_siem", description="Security Information and Event Management"
+        prog="my_siem",
+        usage="%(prog)s [general flags] [COMMAND [command flags]]...",
+        description="Security Information and Event Management",
+        epilog=f"commands:\n{listing}\n\n"
+        "With no COMMAND, every command runs. "
+        "Run `my_siem COMMAND --help` for a command's own flags.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     _add_general_flags(parser, with_defaults=True)
-    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    commands = {}
     for name, command in COMMANDS.items():
-        cmd_parser = sub.add_parser(name, help=command.help)
-        _add_general_flags(cmd_parser, with_defaults=False)
-        command.add_arguments(cmd_parser)
-    return parser
+        sub = argparse.ArgumentParser(prog=f"my_siem {name}", description=command.help)
+        _add_general_flags(sub, with_defaults=False)
+        command.add_arguments(sub)
+        commands[name] = sub
+    return parser, commands
+
+
+def _takes_value(parser: argparse.ArgumentParser, token: str) -> bool:
+    if not token.startswith("-") or "=" in token:
+        return False
+    action = parser._option_string_actions.get(token)
+    return action is not None and action.nargs != 0
+
+
+def split_commands(
+    argv: list[str],
+    parser: argparse.ArgumentParser,
+    commands: dict[str, argparse.ArgumentParser],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Cut argv at each command name: the general flags, then each command's flags.
+
+    A token right after a flag that takes a value is that value, never a command,
+    so `--iface dummy` still names an interface.
+    """
+    general: list[str] = []
+    selected: dict[str, list[str]] = {}
+    tokens, current = general, parser
+    value_next = False
+    for token in argv:
+        if value_next:
+            value_next = False
+        elif token in commands:
+            if token in selected:
+                parser.error(f"command {token!r} given twice")
+            tokens = selected[token] = []
+            current = commands[token]
+            continue
+        elif current is parser and not token.startswith("-"):
+            parser.error(
+                f"unknown command {token!r} (choose from {', '.join(commands)})"
+            )
+        else:
+            value_next = _takes_value(current, token)
+        tokens.append(token)
+    return general, selected
 
 
 def _fail(message: str) -> NoReturn:
     sys.exit(f"my_siem: error: {message}")
 
 
-def _announce(
-    out: EventLogger,
-    log_file: Path | None,
-    resumed: bool,
-    warnings: list[ConfigWarning],
-) -> None:
-    if log_file is not None:
-        verb = "appending to existing log" if resumed else "writing log to"
+@dataclass
+class Running:
+    """A command set up to run: its config, state, and where its events go."""
+
+    name: str
+    command: Command[Any, Any]
+    cfg: Any
+    state: Any
+    warnings: list[ConfigWarning]
+    provider: LoggerProvider | None = None
+    out: EventLogger | None = None
+    log_file: Path | None = None
+    resumed: bool = False
+
+
+def _announce(r: Running, out: EventLogger, warnings: list[ConfigWarning]) -> None:
+    if r.log_file is not None:
+        verb = "appending to existing log" if r.resumed else "writing log to"
         out.emit(
             INFO,
             "siem.log.opened",
-            f"{verb} {log_file}",
-            {"log.file.path": str(log_file), "siem.log.resumed": resumed},
+            f"{verb} {r.log_file}",
+            {"log.file.path": str(r.log_file), "siem.log.resumed": r.resumed},
         )
     for w in warnings:
-        # Also on stderr: by default events only go to the log file.
-        print(f"my_siem: warning: {w.message}", file=sys.stderr)
         out.emit(WARN, w.event_name, w.message, {"siem.config.path": str(w.path)})
 
 
+def _run_all(running: list[Running]) -> None:
+    """Run every command in its own thread until all return, one fails, or Ctrl-C."""
+    done: queue.Queue[BaseException | None] = queue.Queue()
+
+    def target(r: Running) -> None:
+        assert r.out is not None
+        try:
+            r.command.run(r.out, r.cfg, r.state)
+            done.put(None)
+        except BaseException as e:  # noqa: BLE001 -- re-raised in the main thread
+            done.put(e)
+
+    for r in running:
+        threading.Thread(
+            target=target, args=(r,), name=f"my_siem.{r.name}", daemon=True
+        ).start()
+    try:
+        for _ in running:
+            error = done.get()
+            if error is not None:
+                raise error
+    except KeyboardInterrupt:
+        pass
+
+
 def main(argv: list[str] | None = None) -> None:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    command = COMMANDS[args.command]
+    parser, command_parsers = build_parsers()
+    general_argv, selected_argv = split_commands(
+        sys.argv[1:] if argv is None else argv, parser, command_parsers
+    )
+    args = parser.parse_args(general_argv)
+    if not selected_argv:
+        selected_argv = {name: [] for name in COMMANDS}
+    command_args: dict[str, argparse.Namespace] = {}
+    for name, tokens in selected_argv.items():
+        ns = command_parsers[name].parse_args(tokens)
+        # General flags given after a command apply to the whole run.
+        for key, value in vars(ns).items():
+            if hasattr(args, key):
+                setattr(args, key, value)
+        command_args[name] = ns
     layout = Layout(args.path)
 
-    warnings: list[ConfigWarning] = []
+    general_warnings: list[ConfigWarning] = []
+    running: list[Running] = []
     try:
         general = load_config(
-            layout.general_config, GeneralConfig.from_json, GeneralConfig(), warnings
+            layout.general_config,
+            GeneralConfig.from_json,
+            GeneralConfig(),
+            general_warnings,
         )
-        cfg = load_config(
-            layout.command_config(args.command),
-            command.from_json,
-            command.default,
-            warnings,
-        )
+        for name, ns in command_args.items():
+            command = COMMANDS[name]
+            warnings: list[ConfigWarning] = []
+            cfg = load_config(
+                layout.command_config(name),
+                command.from_json,
+                command.default,
+                warnings,
+            )
+            try:
+                cfg = command.apply_flags(cfg, ns)
+            except ValueError as e:
+                command_parsers[name].error(str(e))
+            running.append(
+                Running(name, command, cfg, command.new_state(cfg), warnings)
+            )
     except ConfigError as e:
         _fail(str(e))
-    try:
-        cfg = command.apply_flags(cfg, args)
-    except ValueError as e:
-        parser.error(str(e))
 
     to_stdout = args.stdout or general.stdout
     to_file = general.log and not args.no_log
     if not (to_stdout or to_file):
         parser.error("log files are disabled and --stdout is not set: no output")
 
-    exporters = []
-    log_file, resumed = None, False
-    if to_file:
-        log_file = layout.log_file(args.command)
-        try:
-            exporter, resumed = JsonLinesExporter.append_to(log_file)
-        except OSError as e:
-            _fail(f"cannot open log file ({e}); try --path or run as root")
-        exporters.append(exporter)
-    if to_stdout:
-        exporters.append(JsonLinesExporter(sys.stdout))
+    # Also on stderr, once: by default events only go to the log files.
+    for w in general_warnings + [w for r in running for w in r.warnings]:
+        print(f"my_siem: warning: {w.message}", file=sys.stderr)
 
-    state = command.new_state(cfg)
     api = None
     if args.api or general.api:
         host = args.api_host or general.api_host
         port = general.api_port if args.api_port is None else args.api_port
-        app = create_app(args.command, state.snapshot, general.api_cors_origins)
+        hosts = [*general.api_allowed_hosts, host]
+        app = create_app({r.name: r.state.snapshot for r in running}, hosts)
         try:
             api = ApiServer(app, host, port)
         except OSError as e:
             _fail(f"cannot serve the API on {host}:{port} ({e})")
 
-    provider = make_provider(exporters)
+    # Shared, and locked inside, so concurrent commands never interleave a line.
+    stdout = JsonLinesExporter(sys.stdout) if to_stdout else None
     try:
-        out = event_logger(provider, f"my_siem.{args.command}")
-        _announce(out, log_file, resumed, warnings)
+        for r in running:
+            exporters = [] if stdout is None else [stdout]
+            if to_file:
+                r.log_file = layout.log_file(r.name)
+                try:
+                    exporter, r.resumed = JsonLinesExporter.append_to(r.log_file)
+                except OSError as e:
+                    _fail(f"cannot open log file ({e}); try --path or run as root")
+                exporters.insert(0, exporter)
+            r.provider = make_provider(exporters)
+            r.out = event_logger(r.provider, f"my_siem.{r.name}")
+            _announce(r, r.out, general_warnings + r.warnings)
+
         if api is not None:
             api.start()
-            out.emit(
-                INFO,
-                "siem.api.started",
-                f"serving the API at {api.url}/{args.command}",
-                {"url.full": f"{api.url}/{args.command}"},
-            )
-        command.run(out, cfg, state)
+            routes = ", ".join(f"{api.url}/{r.name}" for r in running)
+            for r in running:
+                assert r.out is not None
+                r.out.emit(
+                    INFO,
+                    "siem.api.started",
+                    f"serving the dashboard at {api.url}/ and the data at {routes}",
+                    {"url.full": f"{api.url}/"},
+                )
+        _run_all(running)
     finally:
         if api is not None:
             api.stop()
-        provider.shutdown()
+        for r in running:
+            if r.provider is not None:
+                r.provider.shutdown()
 
 
 if __name__ == "__main__":

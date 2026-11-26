@@ -125,24 +125,22 @@ class GeneralConfig:
     # Loopback by default: the API exposes users and addresses.
     api_host: str = "127.0.0.1"
     api_port: int = 12125
-    api_cors_origins: tuple[str, ...] = (
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    )
+    # Names the browser may use to reach the API; `api_host` is always allowed too.
+    api_allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 
     def __post_init__(self) -> None:
         check_port(self.api_port)
 
     @classmethod
     def from_json(cls, f: Fields) -> "GeneralConfig":
-        origins = f.raw("api_cors_origins")
-        if origins is None:
-            origins = cls.api_cors_origins
-        elif isinstance(origins, list) and all(isinstance(o, str) for o in origins):
-            origins = tuple(origins)
+        hosts = f.raw("api_allowed_hosts")
+        if hosts is None:
+            hosts = cls.api_allowed_hosts
+        elif isinstance(hosts, list) and all(isinstance(h, str) for h in hosts):
+            hosts = tuple(hosts)
         else:
             raise ValueError(
-                f"'api_cors_origins' must be a list of strings, got {origins!r}"
+                f"'api_allowed_hosts' must be a list of strings, got {hosts!r}"
             )
         return cls(
             stdout=f.get("stdout", bool, cls.stdout),
@@ -150,5 +148,5 @@ class GeneralConfig:
             api=f.get("api", bool, cls.api),
             api_host=f.get("api_host", str, cls.api_host),
             api_port=f.get("api_port", int, cls.api_port),
-            api_cors_origins=origins,
+            api_allowed_hosts=hosts,
         )

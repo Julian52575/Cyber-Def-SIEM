@@ -34,18 +34,6 @@ check-typecheck:
 check-test:
     uv run pytest
 
-# Install the frontend dependencies
-frontend-install:
-    cd frontend && npm ci
-
-# Start the frontend dev server on :3000
-frontend-dev:
-    cd frontend && npx vite
-
-# Lint, test and build the frontend (mirrors CI)
-frontend-check:
-    cd frontend && npm run lint && npm test && npm run build
-
 # Use the repo's .githooks as git hooks
 set-githooks:
     git config core.hooksPath .githooks

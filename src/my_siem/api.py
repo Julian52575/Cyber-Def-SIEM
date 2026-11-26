@@ -1,31 +1,57 @@
-"""Read-only HTTP API serving the running command's live state (`--api`)."""
+"""Read-only HTTP server for the running commands: dashboard and live data (`--api`)."""
 
+import asyncio
 import socket
 import threading
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+
+from my_siem.web import Dashboard, static_files
 
 type Snapshot = Callable[[], dict[str, Any]]
 
-# OPTIONS is the browser's CORS preflight; it never reaches a route.
-READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+READ_METHODS = frozenset({"GET", "HEAD"})
+SAMPLE_EVERY = 5.0
+
+
+def _host_pattern(host: str) -> str:
+    # The Host header brackets IPv6 addresses.
+    return f"[{host}]" if ":" in host and not host.startswith("[") else host
 
 
 def create_app(
-    command: str, snapshot: Snapshot, cors_origins: Sequence[str]
+    snapshots: Mapping[str, Snapshot],
+    allowed_hosts: Sequence[str],
+    every: float = SAMPLE_EVERY,
 ) -> FastAPI:
-    app = FastAPI(title="my_siem", description="Live monitoring data of my_siem")
-    # The frontend runs on another origin; logs reveal users, so allow only listed ones.
+    """`snapshots` gives the live state of each running command, by name."""
+    dashboard = Dashboard(snapshots, every)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        samplers = asyncio.create_task(dashboard.run_samplers())
+        yield
+        samplers.cancel()
+
+    app = FastAPI(
+        title="my_siem",
+        description="Live monitoring data of my_siem",
+        lifespan=lifespan,
+    )
+    # Against DNS rebinding: a page whose name resolves to this host would otherwise
+    # be same-origin with it and could read the logins.
     app.add_middleware(
-        CORSMiddleware, allow_origins=list(cors_origins), allow_methods=["GET"]
+        TrustedHostMiddleware,
+        allowed_hosts=[_host_pattern(h) for h in allowed_hosts],
     )
 
-    # Added last so it wraps CORS: nothing that writes can reach a route.
+    # Added last so it runs first: nothing that writes can reach a route.
     @app.middleware("http")
     async def read_only(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -39,15 +65,18 @@ def create_app(
         return await call_next(request)
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok", "command": command}
+    def healthz() -> dict[str, Any]:
+        return {"status": "ok", "commands": list(snapshots)}
 
-    app.add_api_route(
-        f"/{command}",
-        snapshot,
-        methods=["GET"],
-        summary=f"Live state of the `{command}` command",
-    )
+    for name, snapshot in snapshots.items():
+        app.add_api_route(
+            f"/{name}",
+            snapshot,
+            methods=["GET"],
+            summary=f"Live state of the `{name}` command",
+        )
+    app.include_router(dashboard.router())
+    app.mount("/static", static_files(), name="static")
     return app
 
 
@@ -59,7 +88,13 @@ class ApiServer:
         family = socket.AF_INET6 if ":" in host else socket.AF_INET
         self.socket = socket.create_server((host, port), family=family)
         self._server = uvicorn.Server(
-            uvicorn.Config(app, log_level="warning", access_log=False)
+            uvicorn.Config(
+                app,
+                log_level="warning",
+                access_log=False,
+                # Open SSE streams never end on their own; do not wait on them to stop.
+                timeout_graceful_shutdown=1,
+            )
         )
         self._thread = threading.Thread(
             target=self._server.run, kwargs={"sockets": [self.socket]}, daemon=True
@@ -74,6 +109,8 @@ class ApiServer:
         self._thread.start()
 
     def stop(self) -> None:
-        self._server.should_exit = True
-        self._thread.join(timeout=5)
+        """Also safe before start(), when setup failed after the port was bound."""
+        if self._thread.is_alive():
+            self._server.should_exit = True
+            self._thread.join(timeout=5)
         self.socket.close()

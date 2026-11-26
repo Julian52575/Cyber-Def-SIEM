@@ -18,7 +18,7 @@ git clone <repo-url> && cd Cyber-Def-SIEM
 just sync          # create .venv and install dependencies, dev tools included
 just set-githooks  # enable the repo's git hooks
 just check         # lint, type-check and test
-just run --path . --stdout ssh   # track SSH connections, config and logs in the repo
+just run --path . --stdout       # run every command, config and logs in the repo
 ```
 
 > Sniffing packets with Scapy needs root or the `CAP_NET_RAW` capability.
@@ -26,8 +26,17 @@ just run --path . --stdout ssh   # track SSH connections, config and logs in the
 ### Usage
 
 ```
-my_siem [--stdout] [--no-log] [--path PATH] [--api [--api-host HOST] [--api-port PORT]] COMMAND [command flags]
+my_siem [--stdout] [--no-log] [--path PATH] [--api [--api-host HOST] [--api-port PORT]] [COMMAND [command flags]]...
 ```
+
+| Command | Description |
+| ------- | ----------- |
+| `ssh`   | Track SSH connections on this system (see [below](#tracking-ssh-connections)) |
+| `dummy` | Generate placeholder data, a template for new commands (see [below](#placeholder-data)) |
+
+With no command, every command runs. Name one or more to run only those, each followed by
+its own flags: `my_siem --api ssh --ports 22,2222 dummy --interval 2`. The commands run side
+by side, each with its own config and log file; if one crashes, my_siem stops.
 
 | Flag          | Description                                                     |
 | ------------- | --------------------------------------------------------------- |
@@ -35,11 +44,11 @@ my_siem [--stdout] [--no-log] [--path PATH] [--api [--api-host HOST] [--api-port
 | `--stdout`    | Also print events to stdout (default: off)                      |
 | `--no-log`    | Do not write events to log files (default: off)                 |
 | `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
-| `--api`       | Serve live monitoring data over HTTP (see [API](#api))          |
+| `--api`       | Serve a live dashboard and the monitoring data over HTTP (see [API](#api)) |
 | `--api-host HOST` | Address the API listens on (default: `127.0.0.1`)           |
 | `--api-port PORT` | Port the API listens on (default: `12125`)                  |
 
-General flags may go before or after the command. Command-line flags override the config files.
+General flags may go before or after the commands. Command-line flags override the config files.
 
 ### Configuration and logs
 
@@ -66,27 +75,42 @@ Examples with every key at its default are in [`config/`](config/).
 | `api`    | `false` | Serve the API (as `--api`)        |
 | `api_host` | `"127.0.0.1"` | Address the API listens on |
 | `api_port` | `12125` | Port the API listens on         |
-| `api_cors_origins` | `["http://localhost:3000", "http://127.0.0.1:3000"]` | Browser origins allowed to call the API (the frontend) |
+| `api_allowed_hosts` | `["localhost", "127.0.0.1", "::1"]` | Host names the API answers to, besides `api_host` (against DNS rebinding) |
 
 ### API
 
-With `--api`, my_siem also runs a read-only HTTP API (FastAPI) while it monitors. Any
-method other than `GET`, `HEAD` or `OPTIONS` (CORS preflight) gets `405`, on every path:
+With `--api`, my_siem also runs a read-only HTTP server (FastAPI) while it monitors: a
+dashboard rendered by the server, and the same data as JSON. Any method other than `GET`
+or `HEAD` gets `405`, on every path:
 
 ```sh
-sudo .venv/bin/my_siem --api ssh
-curl localhost:12125/ssh
+sudo .venv/bin/my_siem --api
+xdg-open http://localhost:12125/   # dashboard
+curl localhost:12125/ssh           # JSON
 ```
 
-| Endpoint        | Returns                                                                 |
-| --------------- | ----------------------------------------------------------------------- |
-| `GET /healthz`  | `{"status": "ok", "command": "ssh"}`                                    |
-| `GET /ssh`      | Effective config, source status, event counts, active connections, last 100 logins and alerts |
-| `GET /docs`     | Interactive OpenAPI docs                                                |
+| Endpoint                | Returns                                                         |
+| ----------------------- | --------------------------------------------------------------- |
+| `GET /`                 | Redirects to the first running command's dashboard              |
+| `GET /ui/<command>`     | The command's dashboard tab                                     |
+| `GET /ui/<command>/stream` | Server-Sent Events: the tab re-rendered every 5 s            |
+| `GET /<command>`        | The command's live state as JSON (below)                        |
+| `GET /healthz`          | `{"status": "ok", "commands": ["ssh", "dummy"]}`                |
+| `GET /docs`             | Interactive OpenAPI docs                                        |
 
-Only the running command's endpoint exists (`/ssh` under `my_siem ssh`). The API listens
-on loopback by default because it exposes users and addresses; use `--api-host 0.0.0.0`
-to reach it from another machine, and add the frontend's origin to `api_cors_origins`.
+| Command | Dashboard tab and JSON state |
+| ------- | ---------------------------- |
+| `ssh`   | Effective config, source status, event counts, active connections, last 100 logins and alerts |
+| `dummy` | Config, allowed and blocked events per hour of the day, detections per rule |
+
+Only the running commands' endpoints exist (no `/ssh` under `my_siem dummy`). The dashboard
+works without JavaScript (it then shows the data as of the page load); with it,
+`static/live.js` swaps in each update from the stream. Chart history is sampled by the
+server every 5 s and kept for 10 minutes, so it survives reloads but not restarts.
+
+The server listens on loopback by default because it exposes users and addresses. To
+reach it from another machine, use `--api-host 0.0.0.0` and add the name or address you
+browse to to `api_allowed_hosts`; other `Host` headers get `400`.
 
 Log folders are created when missing. An existing log file is appended to, never
 overwritten, so history from earlier runs stays in the same file (the run's first event,
@@ -121,6 +145,24 @@ Two sources run side by side:
 Alerts are raised when one IP makes `fail_threshold` failed logins
 or `conn_threshold` new connections within `window` seconds.
 
+### Placeholder data
+
+```sh
+.venv/bin/my_siem --path . --api dummy --interval 2
+```
+
+`dummy` needs no privileges and reads nothing from the system. It starts from seeded
+placeholder data (24 hours of allowed and blocked events, detections per rule), then every
+`interval` seconds adds a little to the current hour, so its dashboard tab moves. It logs
+only its startup events. Copy it to start a new command.
+
+`config/dummy/config.json` (`--interval` also exists as a flag):
+
+| Key        | Default | Description                                  |
+| ---------- | ------- | -------------------------------------------- |
+| `interval` | `5`     | Seconds between updates                      |
+| `seed`     | `42`    | Random seed of the starting data             |
+
 ### Output format
 
 Every event is written as one JSON line following the
@@ -136,7 +178,7 @@ Attributes use the OTel semantic conventions (`client.address`, `server.port`, `
 | `siem.ssh.connection.opened`, `.closed`             | INFO     |
 | `siem.alert.ssh_bruteforce`, `siem.alert.ssh_conn_flood` | ERROR |
 | `siem.source.started` / `siem.source.failed`        | INFO / ERROR |
-| `siem.log.opened`                                   | INFO     |
+| `siem.log.opened`, `siem.api.started`              | INFO     |
 | `siem.config.missing`, `siem.config.unknown_key`    | WARN     |
 
 ```sh
@@ -145,12 +187,15 @@ jq 'select(.severity_text == "ERROR")' /etc/my_siem/logs/ssh/ssh.jsonl   # only 
 
 ### Project layout
 
+How the commands and the dashboard work inside, and how to add a command: [src/my_siem/README.md](src/my_siem/README.md).
+
 ```
 src/my_siem/   the package (entry point: my_siem.main:main)
   ssh/         the `ssh` command: sshd log parsing, network tracking, monitor, flags
+  dummy/       the `dummy` command: placeholder data, a template for new commands
+  web/         the dashboard: Jinja2 templates, SVG chart geometry, SSE stream
 config/        example configs, all values at their defaults
 logs/          log output when run with --path . (git-ignored)
-frontend/      React + Vite + TypeScript UI (oxlint, vitest)
 tests/         pytest suite
 .githooks/     local git hooks
 .github/       CI workflows, issue/PR templates, rulesets
@@ -168,9 +213,6 @@ tests/         pytest suite
 | `just check-lint`      | Lint `src` and `tests` with ruff, auto-fixing       |
 | `just check-typecheck` | Type-check `src` with mypy                          |
 | `just check-test`      | Run the pytest suite                                |
-| `just frontend-install` | Install the frontend dependencies (needs Node 24)  |
-| `just frontend-dev`    | Start the Vite dev server on port 3000              |
-| `just frontend-check`  | Lint, test and build the frontend, as CI does       |
 | `just set-githooks`    | Use `.githooks/` as the git hooks directory         |
 
 ### Quality Assurance
