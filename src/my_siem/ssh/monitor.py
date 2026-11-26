@@ -5,6 +5,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from scapy.packet import Packet
 from scapy.sendrecv import sniff
@@ -25,6 +26,7 @@ from my_siem.ssh.net import (
     bpf_filter,
     parse_ports,
 )
+from my_siem.ssh.state import SshState
 from my_siem.telemetry import ERROR, INFO, WARN, EventLogger
 
 DEFAULT_AUTH_LOG = Path("/var/log/auth.log")
@@ -85,6 +87,22 @@ class SshMonitorConfig:
             window=f.get("window", float, d.window),
         )
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "ports": sorted(self.ports),
+            "iface": self.iface,
+            "auth_log": self.auth_log,
+            "read_auth_log": self.read_auth_log,
+            "sniff": self.sniff,
+            "fail_threshold": self.fail_threshold,
+            "conn_threshold": self.conn_threshold,
+            "window": self.window,
+        }
+
+
+def new_state(cfg: SshMonitorConfig) -> SshState:
+    return SshState(cfg.to_json())
+
 
 def resolve_auth_log(setting: str) -> Path | None:
     """The file to follow, or None for journald."""
@@ -96,12 +114,19 @@ def resolve_auth_log(setting: str) -> Path | None:
 
 
 def _alert(
-    out: EventLogger, name: str, ip: str, detector: RateDetector, what: str
+    out: EventLogger,
+    state: SshState,
+    name: str,
+    ip: str,
+    detector: RateDetector,
+    what: str,
 ) -> None:
+    message = f"{ip} made {detector.threshold} {what} within {detector.window:.0f}s"
+    state.alert(name, ip, message, time.time())
     out.emit(
         ERROR,
         f"siem.alert.{name}",
-        f"{ip} made {detector.threshold} {what} within {detector.window:.0f}s",
+        message,
         {
             "client.address": ip,
             "siem.alert.threshold": detector.threshold,
@@ -111,8 +136,13 @@ def _alert(
 
 
 def report_auth(
-    out: EventLogger, event: AuthEvent, failures: RateDetector, now: float
+    out: EventLogger,
+    state: SshState,
+    event: AuthEvent,
+    failures: RateDetector,
+    now: float,
 ) -> None:
+    state.auth(event, time.time())
     failed = event.kind in (AuthKind.LOGIN_FAILURE, AuthKind.INVALID_USER)
     out.emit(
         WARN if failed else INFO,
@@ -128,10 +158,13 @@ def report_auth(
         },
     )
     if failed and failures.hit(event.ip, now):
-        _alert(out, "ssh_bruteforce", event.ip, failures, "failed ssh logins")
+        _alert(out, state, "ssh_bruteforce", event.ip, failures, "failed ssh logins")
 
 
-def report_conn(out: EventLogger, event: ConnEvent, openings: RateDetector) -> None:
+def report_conn(
+    out: EventLogger, state: SshState, event: ConnEvent, openings: RateDetector
+) -> None:
+    state.conn(event)
     c = event.conn
     attributes: dict[str, str | int | float | bool] = {
         "client.address": c.client_ip,
@@ -151,7 +184,9 @@ def report_conn(out: EventLogger, event: ConnEvent, openings: RateDetector) -> N
             event.at,
         )
         if openings.hit(c.client_ip, event.at):
-            _alert(out, "ssh_conn_flood", c.client_ip, openings, "ssh connections")
+            _alert(
+                out, state, "ssh_conn_flood", c.client_ip, openings, "ssh connections"
+            )
         return
     attributes |= {
         "siem.ssh.connection.duration": round(event.duration, 3),
@@ -168,8 +203,11 @@ def report_conn(out: EventLogger, event: ConnEvent, openings: RateDetector) -> N
     )
 
 
-def _auth_lines(out: EventLogger, cfg: SshMonitorConfig) -> Iterator[str]:
+def _auth_lines(
+    out: EventLogger, state: SshState, cfg: SshMonitorConfig
+) -> Iterator[str]:
     path = resolve_auth_log(cfg.auth_log)
+    state.source("sshd_log", "running", str(path or JOURNALD))
     out.emit(
         INFO,
         "siem.source.started",
@@ -179,12 +217,13 @@ def _auth_lines(out: EventLogger, cfg: SshMonitorConfig) -> Iterator[str]:
     return follow_journal() if path is None else follow_file(path)
 
 
-def _run_logs(out: EventLogger, cfg: SshMonitorConfig) -> None:
+def _run_logs(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
     failures = RateDetector(cfg.fail_threshold, cfg.window)
     try:
-        for event in follow_events(_auth_lines(out, cfg)):
-            report_auth(out, event, failures, time.monotonic())
+        for event in follow_events(_auth_lines(out, state, cfg)):
+            report_auth(out, state, event, failures, time.monotonic())
     except OSError as e:
+        state.source("sshd_log", "failed", str(e))
         out.emit(
             ERROR,
             "siem.source.failed",
@@ -193,16 +232,17 @@ def _run_logs(out: EventLogger, cfg: SshMonitorConfig) -> None:
         )
 
 
-def _run_sniffer(out: EventLogger, cfg: SshMonitorConfig) -> None:
+def _run_sniffer(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
     tracker = SshConnTracker(cfg.ports)
     openings = RateDetector(cfg.conn_threshold, cfg.window)
 
     def on_packet(pkt: Packet) -> None:
         event = tracker.handle(pkt, float(pkt.time))
         if event is not None:
-            report_conn(out, event, openings)
+            report_conn(out, state, event, openings)
 
     ports = sorted(cfg.ports)
+    state.source("network", "running", f"ports {','.join(map(str, ports))}")
     out.emit(
         INFO,
         "siem.source.started",
@@ -216,6 +256,7 @@ def _run_sniffer(out: EventLogger, cfg: SshMonitorConfig) -> None:
     try:
         sniff(iface=cfg.iface, filter=bpf_filter(cfg.ports), prn=on_packet, store=False)
     except (OSError, RuntimeError) as e:
+        state.source("network", "failed", str(e))
         out.emit(
             ERROR,
             "siem.source.failed",
@@ -224,13 +265,15 @@ def _run_sniffer(out: EventLogger, cfg: SshMonitorConfig) -> None:
         )
 
 
-def run(out: EventLogger, cfg: SshMonitorConfig) -> None:
+def run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
     workers = []
     if cfg.read_auth_log:
-        workers.append(threading.Thread(target=_run_logs, args=(out, cfg), daemon=True))
+        workers.append(
+            threading.Thread(target=_run_logs, args=(out, state, cfg), daemon=True)
+        )
     if cfg.sniff:
         workers.append(
-            threading.Thread(target=_run_sniffer, args=(out, cfg), daemon=True)
+            threading.Thread(target=_run_sniffer, args=(out, state, cfg), daemon=True)
         )
     for w in workers:
         w.start()

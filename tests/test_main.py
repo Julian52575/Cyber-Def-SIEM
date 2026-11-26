@@ -7,6 +7,7 @@ import pytest
 
 from my_siem import main as cli
 from my_siem.ssh.monitor import SshMonitorConfig
+from my_siem.ssh.state import SshState
 from my_siem.telemetry import INFO, EventLogger
 
 
@@ -15,7 +16,7 @@ def ran(monkeypatch: pytest.MonkeyPatch) -> list[SshMonitorConfig]:
     """Replace the ssh monitor with a stub that records its config and logs once."""
     configs: list[SshMonitorConfig] = []
 
-    def fake_run(out: EventLogger, cfg: SshMonitorConfig) -> None:
+    def fake_run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
         configs.append(cfg)
         out.emit(INFO, "test.ran", "ran")
 

@@ -26,7 +26,7 @@ just run --path . --stdout ssh   # track SSH connections, config and logs in the
 ### Usage
 
 ```
-my_siem [--stdout] [--no-log] [--path PATH] COMMAND [command flags]
+my_siem [--stdout] [--no-log] [--path PATH] [--api [--api-host HOST] [--api-port PORT]] COMMAND [command flags]
 ```
 
 | Flag          | Description                                                     |
@@ -35,6 +35,9 @@ my_siem [--stdout] [--no-log] [--path PATH] COMMAND [command flags]
 | `--stdout`    | Also print events to stdout (default: off)                      |
 | `--no-log`    | Do not write events to log files (default: off)                 |
 | `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
+| `--api`       | Serve live monitoring data over HTTP (see [API](#api))          |
+| `--api-host HOST` | Address the API listens on (default: `127.0.0.1`)           |
+| `--api-port PORT` | Port the API listens on (default: `8000`)                   |
 
 General flags may go before or after the command. Command-line flags override the config files.
 
@@ -60,6 +63,30 @@ Examples with every key at its default are in [`config/`](config/).
 | -------- | ------- | --------------------------------- |
 | `stdout` | `false` | Also print events to stdout       |
 | `log`    | `true`  | Write events to the log file      |
+| `api`    | `false` | Serve the API (as `--api`)        |
+| `api_host` | `"127.0.0.1"` | Address the API listens on |
+| `api_port` | `8000`  | Port the API listens on         |
+| `api_cors_origins` | `["http://localhost:3000"]` | Browser origins allowed to call the API (the frontend) |
+
+### API
+
+With `--api`, my_siem also runs a read-only HTTP API (FastAPI) while it monitors. Any
+method other than `GET`, `HEAD` or `OPTIONS` (CORS preflight) gets `405`, on every path:
+
+```sh
+sudo .venv/bin/my_siem --api ssh
+curl localhost:8000/ssh
+```
+
+| Endpoint        | Returns                                                                 |
+| --------------- | ----------------------------------------------------------------------- |
+| `GET /healthz`  | `{"status": "ok", "command": "ssh"}`                                    |
+| `GET /ssh`      | Effective config, source status, event counts, active connections, last 100 logins and alerts |
+| `GET /docs`     | Interactive OpenAPI docs                                                |
+
+Only the running command's endpoint exists (`/ssh` under `my_siem ssh`). The API listens
+on loopback by default because it exposes users and addresses; use `--api-host 0.0.0.0`
+to reach it from another machine, and add the frontend's origin to `api_cors_origins`.
 
 Log folders are created when missing. An existing log file is appended to, never
 overwritten, so history from earlier runs stays in the same file (the run's first event,

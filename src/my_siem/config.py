@@ -111,14 +111,41 @@ def load_config[C](
     return config
 
 
+def check_port(port: int) -> int:
+    if not 0 <= port <= 65535:
+        raise ValueError(f"invalid port: {port}")
+    return port
+
+
 @dataclass(frozen=True)
 class GeneralConfig:
     stdout: bool = False
     log: bool = True
+    api: bool = False
+    # Loopback by default: the API exposes users and addresses.
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    api_cors_origins: tuple[str, ...] = ("http://localhost:3000",)
+
+    def __post_init__(self) -> None:
+        check_port(self.api_port)
 
     @classmethod
     def from_json(cls, f: Fields) -> "GeneralConfig":
+        origins = f.raw("api_cors_origins")
+        if origins is None:
+            origins = cls.api_cors_origins
+        elif isinstance(origins, list) and all(isinstance(o, str) for o in origins):
+            origins = tuple(origins)
+        else:
+            raise ValueError(
+                f"'api_cors_origins' must be a list of strings, got {origins!r}"
+            )
         return cls(
             stdout=f.get("stdout", bool, cls.stdout),
             log=f.get("log", bool, cls.log),
+            api=f.get("api", bool, cls.api),
+            api_host=f.get("api_host", str, cls.api_host),
+            api_port=f.get("api_port", int, cls.api_port),
+            api_cors_origins=origins,
         )
