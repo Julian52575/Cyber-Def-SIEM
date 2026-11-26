@@ -3,6 +3,6 @@
   "log": true,
   "api": false,
   "api_host": "127.0.0.1",
-  "api_port": 12125,
+  "api_port": 3000,
   "api_allowed_hosts": ["localhost", "127.0.0.1", "::1"]
 }

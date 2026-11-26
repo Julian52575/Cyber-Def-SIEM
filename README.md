@@ -48,7 +48,7 @@ by side, each with its own config and log file; if one crashes, my_siem stops.
 | `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
 | `--api`       | Serve a live dashboard and the monitoring data over HTTP (see [API](#api)) |
 | `--api-host HOST` | Address the API listens on (default: `127.0.0.1`)           |
-| `--api-port PORT` | Port the API listens on (default: `12125`)                  |
+| `--api-port PORT` | Port the API listens on (default: `3000`)                   |
 
 General flags may go before or after the commands. Command-line flags override the config files.
 
@@ -76,7 +76,7 @@ Examples with every key at its default are in [`config/`](config/).
 | `log`    | `true`  | Write events to the log file      |
 | `api`    | `false` | Serve the API (as `--api`)        |
 | `api_host` | `"127.0.0.1"` | Address the API listens on |
-| `api_port` | `12125` | Port the API listens on         |
+| `api_port` | `3000`  | Port the API listens on         |
 | `api_allowed_hosts` | `["localhost", "127.0.0.1", "::1"]` | Host names the API answers to, besides `api_host` (against DNS rebinding) |
 
 ### API
@@ -87,8 +87,8 @@ or `HEAD` gets `405`, on every path:
 
 ```sh
 sudo .venv/bin/my_siem --api
-xdg-open http://localhost:12125/   # dashboard
-curl localhost:12125/ssh           # JSON
+xdg-open http://localhost:3000/   # dashboard
+curl localhost:3000/ssh           # JSON
 ```
 
 | Endpoint                | Returns                                                         |
@@ -164,7 +164,7 @@ inside TLS are not seen (see `https`, or the web server's own logs).
 
 | Key                 | Default | Description                                          |
 | ------------------- | ------- | ---------------------------------------------------- |
-| `ports`             | `"3000"` | HTTP ports, as a list or a string, like `ssh`'s     |
+| `ports`             | `"80"`  | HTTP ports, as a list or a string, like `ssh`'s      |
 | `iface`             | `null`  | Interface to sniff on (`null`: all)                  |
 | `request_threshold` | `100`   | Requests from one IP that raise an alert             |
 | `error_threshold`   | `20`    | 4xx responses to one IP that raise an alert          |

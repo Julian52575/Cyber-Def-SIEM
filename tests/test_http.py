@@ -9,7 +9,7 @@ from my_siem.http.wire import HttpRequest, match_rules, parse_request, parse_res
 from my_siem.telemetry import event_logger, make_provider
 
 CLIENT = ("203.0.113.9", 50122)
-SERVER = ("10.0.0.1", 3000)
+SERVER = ("10.0.0.1", 80)
 
 
 def to_server(flags: str, payload: bytes = b"") -> Packet:

@@ -20,7 +20,7 @@ from my_siem.telemetry import INFO, WARN, EventLogger
 class HttpConfig:
     """Settings of the `http` command, read from config/http/config.json."""
 
-    ports: frozenset[int] = frozenset({3000})
+    ports: frozenset[int] = frozenset({80})
     iface: str | None = None
     request_threshold: int = 100
     error_threshold: int = 20

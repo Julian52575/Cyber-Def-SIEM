@@ -193,15 +193,15 @@ def test_stream_pushes_rendered_sections() -> None:
 
 
 def busy_http_state() -> HttpState:
-    state = HttpState({"ports": [3000]})
-    state.source("network", "running", "ports 3000")
+    state = HttpState({"ports": [80]})
+    state.source("network", "running", "ports 80")
     req = parse_request(
         f"GET /q?{XSS} HTTP/1.1\r\nHost: shop.test\r\nUser-Agent: {XSS}\r\n\r\n".encode()
     )
     assert req is not None
-    state.request(req, ("203.0.113.9", 4242), ("10.0.0.1", 3000), ["xss"], 1.0)
+    state.request(req, ("203.0.113.9", 4242), ("10.0.0.1", 80), ["xss"], 1.0)
     state.response(404)
-    conn = Connection("203.0.113.9", 4242, "10.0.0.1", 3000, started=100.0)
+    conn = Connection("203.0.113.9", 4242, "10.0.0.1", 80, started=100.0)
     state.conn(ConnEvent(ConnKind.OPENED, conn, 100.0))
     return state
 

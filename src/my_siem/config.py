@@ -124,7 +124,7 @@ class GeneralConfig:
     api: bool = False
     # Loopback by default: the API exposes users and addresses.
     api_host: str = "127.0.0.1"
-    api_port: int = 12125
+    api_port: int = 3000
     # Names the browser may use to reach the API; `api_host` is always allowed too.
     api_allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 

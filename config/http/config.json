@@ -1,5 +1,5 @@
 {
-  "ports": "3000",
+  "ports": "80",
   "iface": null,
   "request_threshold": 100,
   "error_threshold": 20,
