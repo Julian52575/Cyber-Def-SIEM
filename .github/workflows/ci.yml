@@ -9,7 +9,6 @@ on:
       - ".gitignore"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/rulesets/**"
-      - ".sast/report/**"
   pull_request:
   workflow_dispatch: # allow a manual re-run from the Actions tab
 
@@ -24,11 +23,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  devshell:
+  # Mirrors the pre-commit hook: formatting, then `just check` (ruff, mypy,
+  # pytest) against the locked dependencies.
+  python:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      PODMAN_NO_SOCKET: "1" # don't spawn a Podman API socket in CI
+    timeout-minutes: 15
     steps:
       - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
@@ -39,25 +38,20 @@ jobs:
           # No git writes in this job; do not leave the token in .git/config.
           persist-credentials: false
 
-      # Local composite action: check out first, then it installs Nix.
-      # `nix flake check` below already evaluates the flake, so skip the warm.
-      - uses: ./.github/actions/setup-devshell # zizmor: ignore[self-repository] -- actionlint rejects `$/`
-        with:
-          warm: "false"
+      # Local composite action: check out first, then it installs uv and just.
+      - uses: ./.github/actions/setup-python # zizmor: ignore[self-repository] -- actionlint rejects `$/`
 
-      - name: Check the flake evaluates
-        run: nix flake check --no-build --all-systems
+      - name: Check formatting
+        run: uv run ruff format --check src tests
 
-      - name: Enter the dev shell and sanity-check tooling
-        run: |
-          nix develop --command bash -euo pipefail -c '
-            just --list
-            podman --version
-            podman-compose -f docker-compose.yml config >/dev/null
-          '
+      - name: Lint, type-check and test
+        run: just check
 
-  # Every Dockerfile / Containerfile tracked in the repo -- a new one is
-  # picked up without touching this workflow. Mounts the repo so hadolint
+      - name: Build the sdist and wheel
+        run: uv build
+
+  # Every Dockerfile / Containerfile tracked in the repo (none yet: passes) --
+  # a new one is picked up without touching this workflow. Mounts the repo so hadolint
   # reads a root .hadolint.yaml if one exists.
   dockerfile-lint:
     runs-on: ubuntu-latest
@@ -96,25 +90,6 @@ jobs:
           done
           exit "$failed"
 
-  # The compose file parses and interpolates cleanly with the example .env.
-  compose-lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Load .env
-        run: cp .env.example .env
-
-      - name: Validate docker-compose.yml
-        run: docker compose config --quiet
-
   # Every workflow under .github/workflows, including a shellcheck pass on each
   # `run:` script (bundled in the actionlint image).
   workflow-lint:
@@ -136,7 +111,6 @@ jobs:
           -color
 
   # Security audit of every workflow and action; findings show as PR annotations.
-  # Keep the version in sync with nix/zizmor.nix.
   zizmor:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -155,8 +129,7 @@ jobs:
         run: pipx run zizmor==1.31.1 --format github .github/
 
   # Software-composition analysis of THIS branch: osv-scanner finds every
-  # lockfile in the repo (npm, pip, go, cargo, maven, ...) and checks it
-  # against the OSV database, so it needs no per-language setup.
+  # lockfile in the repo (uv.lock here) and checks it against the OSV database.
   #
   # Gate: fails on any Critical or High advisory (CVSS >= 7), on 5 or more
   # Moderate+Low, or when the scan cannot complete -- an unknown posture is not
@@ -245,127 +218,16 @@ jobs:
           path: dependency-audit
           if-no-files-found: ignore
 
-  # Lint, test and build each Node.js service in its own folder.
-  node:
-    name: node (${{ matrix.service }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [backend, frontend] # CUSTOMISE: one entry per Node.js service
-    defaults:
-      run:
-        working-directory: ${{ matrix.service }}
-    steps:
-      - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: ${{ matrix.service }}/package-lock.json
-
-      - run: npm ci
-      - run: npm run lint
-      - name: Generate the Prisma client
-        if: hashFiles(format('{0}/prisma/schema.prisma', matrix.service)) != ''
-        run: npx prisma generate
-      - run: npm test
-      - name: Build
-        if: matrix.service == 'frontend'
-        run: npm run build
-
-  # How the services work together: boots the whole compose stack and calls
-  # every route through the proxy. CUSTOMISE the checks when you replace the
-  # example services.
-  stack:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      PROXY: http://127.0.0.1:8000
-      DASHBOARD: http://127.0.0.1:8080
-    steps:
-      - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Load .env
-        run: cp .env.example .env
-
-      - name: Build and start the stack, waiting for healthchecks
-        run: docker compose up -d --build --wait --wait-timeout 300
-
-      - name: Call every service through the proxy
-        run: |
-          set -euo pipefail
-          # Traefik picks up routes asynchronously; retry before failing. $2 must
-          # appear in the body, or an unrouted /api would pass on the
-          # frontend's catch-all HTML.
-          check() {
-            for _ in $(seq 1 30); do
-              curl -fsS "$1" | grep -qF -- "$2" && { echo "ok    $1"; return 0; }
-              sleep 1
-            done
-            echo "::error::$1 did not answer with '$2'"
-            return 1
-          }
-          check "$PROXY/" '<div id="root">'
-          check "$PROXY/api/health" '"status":"ok"'
-          check "$PROXY/api/items" '[' # reaches Postgres through Prisma
-          check "$DASHBOARD/api/rawdata" '"routers"'
-
-      # Every volume must be named: anonymous ones escape compose-diagnostic
-      # and cleanup. A VOLUME declared by an image needs a named mount too.
-      - name: No anonymous volumes
-        run: |
-          set -euo pipefail
-          project=$(docker compose config --format json | jq -r .name)
-          fail=0
-          for c in $(docker compose ps -aq); do
-            while read -r type name dest; do
-              [ "$type" = volume ] || continue
-              label=$(docker volume inspect "$name" --format '{{index .Labels "com.docker.compose.project"}}')
-              if [ "$label" != "$project" ]; then
-                echo "::error::$(docker inspect "$c" --format '{{.Name}}') mounts an anonymous volume at $dest; name it in docker-compose.yml"
-                fail=1
-              fi
-            done < <(docker inspect "$c" --format '{{range .Mounts}}{{.Type}} {{.Name}} {{.Destination}}{{println}}{{end}}')
-          done
-          [ "$fail" = 0 ] && echo "ok    every volume is named"
-          exit "$fail"
-
-      - name: Show logs on failure
-        if: failure()
-        run: docker compose logs --no-color
-
-      - name: Tear down
-        if: always()
-        run: docker compose down --volumes --remove-orphans
-
   # Single stable check for the branch ruleset to require.
   # Add a job to `needs` here to make it mandatory to the branch ruleset.
   ci-required:
     if: always()
     needs:
-      - devshell
+      - python
       - dockerfile-lint
-      - compose-lint
       - workflow-lint
       - zizmor
-      - node
       - dependencies-audit
-      - stack
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

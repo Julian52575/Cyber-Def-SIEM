@@ -15,7 +15,7 @@ Closes #NNN
 
 ## How it was verified
 
-1. nix develop
+1. just check
 2. ...
 
 ## Risk / rollback
