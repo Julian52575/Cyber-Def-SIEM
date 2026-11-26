@@ -1,0 +1,6 @@
+{
+  "ports": "443",
+  "iface": null,
+  "conn_threshold": 100,
+  "window": 60
+}

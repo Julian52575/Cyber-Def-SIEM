@@ -8,23 +8,23 @@ from pathlib import Path
 from typing import Any
 
 from scapy.packet import Packet
-from scapy.sendrecv import sniff
 
 from my_siem.config import Fields
-from my_siem.detect import RateDetector
+from my_siem.detect import RateDetector, rate_alert
+from my_siem.net import (
+    ConnEvent,
+    ConnKind,
+    ConnTracker,
+    conn_attributes,
+    ports_from_json,
+    run_sniffer,
+)
 from my_siem.ssh.log import (
     AuthEvent,
     AuthKind,
     follow_events,
     follow_file,
     follow_journal,
-)
-from my_siem.ssh.net import (
-    ConnEvent,
-    ConnKind,
-    SshConnTracker,
-    bpf_filter,
-    parse_ports,
 )
 from my_siem.ssh.state import SshState
 from my_siem.telemetry import ERROR, INFO, WARN, EventLogger
@@ -65,19 +65,8 @@ class SshMonitorConfig:
     @classmethod
     def from_json(cls, f: Fields) -> "SshMonitorConfig":
         d = cls()
-        ports = f.raw("ports")
-        if ports is None:
-            ports = d.ports
-        elif isinstance(ports, str):
-            ports = parse_ports(ports)
-        elif isinstance(ports, list) and all(type(p) is int for p in ports):
-            ports = parse_ports(",".join(map(str, ports)))
-        else:
-            raise ValueError(
-                f"'ports' must be a list of ints or a string like \"22,221-229\", got {ports!r}"
-            )
         return cls(
-            ports=ports,
+            ports=ports_from_json(f.raw("ports"), d.ports),
             iface=f.optional("iface", str),
             auth_log=f.get("auth_log", str, d.auth_log),
             read_auth_log=f.get("read_auth_log", bool, d.read_auth_log),
@@ -113,28 +102,6 @@ def resolve_auth_log(setting: str) -> Path | None:
     return Path(setting)
 
 
-def _alert(
-    out: EventLogger,
-    state: SshState,
-    name: str,
-    ip: str,
-    detector: RateDetector,
-    what: str,
-) -> None:
-    message = f"{ip} made {detector.threshold} {what} within {detector.window:.0f}s"
-    state.alert(name, ip, message, time.time())
-    out.emit(
-        ERROR,
-        f"siem.alert.{name}",
-        message,
-        {
-            "client.address": ip,
-            "siem.alert.threshold": detector.threshold,
-            "siem.alert.window": detector.window,
-        },
-    )
-
-
 def report_auth(
     out: EventLogger,
     state: SshState,
@@ -158,7 +125,9 @@ def report_auth(
         },
     )
     if failed and failures.hit(event.ip, now):
-        _alert(out, state, "ssh_bruteforce", event.ip, failures, "failed ssh logins")
+        rate_alert(
+            out, state, "ssh_bruteforce", event.ip, failures, "failed ssh logins"
+        )
 
 
 def report_conn(
@@ -166,14 +135,7 @@ def report_conn(
 ) -> None:
     state.conn(event)
     c = event.conn
-    attributes: dict[str, str | int | float | bool] = {
-        "client.address": c.client_ip,
-        "client.port": c.client_port,
-        "server.address": c.server_ip,
-        "server.port": c.server_port,
-        "network.transport": "tcp",
-        "network.type": "ipv6" if ":" in c.client_ip else "ipv4",
-    }
+    attributes = conn_attributes(c)
     flow = f"{c.client_ip}:{c.client_port} -> {c.server_ip}:{c.server_port}"
     if event.kind is ConnKind.OPENED:
         out.emit(
@@ -184,7 +146,7 @@ def report_conn(
             event.at,
         )
         if openings.hit(c.client_ip, event.at):
-            _alert(
+            rate_alert(
                 out, state, "ssh_conn_flood", c.client_ip, openings, "ssh connections"
             )
         return
@@ -233,7 +195,7 @@ def _run_logs(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
 
 
 def _run_sniffer(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
-    tracker = SshConnTracker(cfg.ports)
+    tracker = ConnTracker(cfg.ports)
     openings = RateDetector(cfg.conn_threshold, cfg.window)
 
     def on_packet(pkt: Packet) -> None:
@@ -241,28 +203,7 @@ def _run_sniffer(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> No
         if event is not None:
             report_conn(out, state, event, openings)
 
-    ports = sorted(cfg.ports)
-    state.source("network", "running", f"ports {','.join(map(str, ports))}")
-    out.emit(
-        INFO,
-        "siem.source.started",
-        f"sniffing ssh traffic on ports {','.join(map(str, ports))}",
-        {
-            "siem.source": "network",
-            "network.interface.name": cfg.iface,
-            "siem.ports": ports,
-        },
-    )
-    try:
-        sniff(iface=cfg.iface, filter=bpf_filter(cfg.ports), prn=on_packet, store=False)
-    except (OSError, RuntimeError) as e:
-        state.source("network", "failed", str(e))
-        out.emit(
-            ERROR,
-            "siem.source.failed",
-            f"cannot sniff (needs root or CAP_NET_RAW): {e}",
-            {"siem.source": "network", "error.type": type(e).__name__},
-        )
+    run_sniffer(out, state, "ssh", cfg.iface, cfg.ports, on_packet)
 
 
 def run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:

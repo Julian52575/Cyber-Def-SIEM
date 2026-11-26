@@ -7,6 +7,8 @@ import pytest
 
 from my_siem import main as cli
 from my_siem.dummy.command import DummyConfig
+from my_siem.http.command import HttpConfig
+from my_siem.https.command import HttpsConfig
 from my_siem.ssh.monitor import SshMonitorConfig
 from my_siem.telemetry import INFO, EventLogger
 
@@ -122,8 +124,13 @@ def test_without_a_command_every_command_runs(
 ) -> None:
     cli.main(["--path", str(tmp_path)])
 
-    assert ran_all == {"ssh": [SshMonitorConfig()], "dummy": [DummyConfig()]}
-    for name in ("ssh", "dummy"):
+    assert ran_all == {
+        "ssh": [SshMonitorConfig()],
+        "http": [HttpConfig()],
+        "https": [HttpsConfig()],
+        "dummy": [DummyConfig()],
+    }
+    for name in cli.COMMANDS:
         log = tmp_path / "logs" / name / f"{name}.jsonl"
         assert "test.ran" in [r["event_name"] for r in records(log)]
 
@@ -133,7 +140,12 @@ def test_only_the_given_commands_run_each_with_its_flags(
 ) -> None:
     cli.main(["--path", str(tmp_path), "dummy", "--interval", "2"])
 
-    assert ran_all == {"ssh": [], "dummy": [DummyConfig(interval=2.0)]}
+    assert ran_all == {
+        "ssh": [],
+        "http": [],
+        "https": [],
+        "dummy": [DummyConfig(interval=2.0)],
+    }
     assert not (tmp_path / "logs" / "ssh").exists()
 
 
@@ -169,7 +181,7 @@ def test_bad_command_lines_are_rejected(
 
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
-    assert ran_all == {"ssh": [], "dummy": []}
+    assert all(configs == [] for configs in ran_all.values())
 
 
 def test_a_failing_command_stops_the_run(
@@ -190,5 +202,17 @@ def test_help_exits_cleanly(capsys: pytest.CaptureFixture[str]) -> None:
         cli.main(["--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    for flag in ("--stdout", "--no-log", "--path", "ssh", "dummy"):
+    for flag in ("--stdout", "--no-log", "--path", "ssh", "http", "https", "dummy"):
         assert flag in out
+
+
+def test_http_and_https_are_told_apart(
+    tmp_path: Path, ran_all: dict[str, list[Any]]
+) -> None:
+    cli.main(
+        ["--path", str(tmp_path), "https", "--ports", "8443", "http", "--ports", "8080"]
+    )
+
+    assert ran_all["http"] == [HttpConfig(ports=frozenset({8080}))]
+    assert ran_all["https"] == [HttpsConfig(ports=frozenset({8443}))]
+    assert ran_all["ssh"] == ran_all["dummy"] == []

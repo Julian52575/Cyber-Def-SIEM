@@ -1,6 +1,6 @@
 # Commands and the dashboard
 
-How the commands (`ssh/`, `dummy/`) and the dashboard (`web/`) fit together. For usage
+How the commands (`ssh/`, `http/`, `https/`, `dummy/`) and the dashboard (`web/`) fit together. For usage
 and config keys, see the [main README](../../README.md).
 
 ## How commands run
@@ -31,12 +31,32 @@ The `ssh` command, for example:
 | ------------ | ---- |
 | `cli.py`     | The command's flags, applied over `config/ssh/config.json`. |
 | `log.py`     | Parses sshd lines into `AuthEvent`s (login success/failure, invalid user, logout) and follows auth.log or journald. |
-| `net.py`     | `SshConnTracker` turns TCP packets into `ConnEvent`s: a SYN to an SSH port opens a connection, FIN or RST closes it; packets and bytes are counted in between. |
 | `monitor.py` | `SshMonitorConfig`, and `run()`: one thread follows the logs, one sniffs with Scapy. Each event is written to the log, recorded in the state, and fed to a `RateDetector` that raises `ssh_bruteforce` or `ssh_conn_flood`. |
-| `state.py`   | `SshState`, the live view: source status, counters, open connections, last 100 logins and alerts. Lock-protected, because the two monitor threads write while the API thread reads `snapshot()`. |
+| `state.py`   | `SshState`, the live view: a `ConnState` (see below) plus the last 100 logins. |
+
+The network side uses the shared modules:
+
+| Module       | Role |
+| ------------ | ---- |
+| `net.py`     | `ConnTracker` turns TCP packets into `ConnEvent`s: a SYN to a watched port opens a connection, FIN or RST closes it; packets and bytes are counted in between. `run_sniffer` runs Scapy and reports the `network` source's status. |
+| `live.py`    | `ConnState`, the base of the `ssh`, `http` and `https` states: source status, counters, open connections and the last 100 alerts. Lock-protected, because the command's threads write while the API thread reads `snapshot()`. |
+| `detect.py`  | `RateDetector` (N hits from one key within a window), and `raise_alert`/`rate_alert`, which record an alert in the state and log it. |
 
 The monitor never talks to the web side. It only fills `SshState`, and everything shown
 over HTTP comes from `snapshot()`.
+
+## `http/` and `https/`: the `http` and `https` commands
+
+Both only sniff. Each run has one `*Watcher` that feeds every packet to a `ConnTracker`
+and reads its payload. Each `command.py` holds the config, the state, the flags and
+`run()`, like `dummy`.
+
+| Module             | Role |
+| ------------------ | ---- |
+| `http/wire.py`     | `parse_request` and `parse_response` read the start of a TCP payload. `match_rules` checks a request against `TARGET_RULES` (on the target, raw and URL-decoded) and `SCANNER_AGENT`. |
+| `http/command.py`  | `HttpWatcher`: a payload to a watched port is a request, one from it a response. Raises `http_suspicious_request`, `http_request_flood` and `http_error_scan`. |
+| `https/tls.py`     | `parse_client_hello` reads SNI, ALPN and supported versions (skipping GREASE). `HelloAssembler` buffers a connection's first bytes until its first TLS record is complete, and tells TLS from plaintext HTTP or anything else. |
+| `https/command.py` | `HttpsWatcher`: reads only connections whose SYN it saw. Raises `https_conn_flood` and `https_legacy_tls`. |
 
 ## `dummy/`: the `dummy` command
 

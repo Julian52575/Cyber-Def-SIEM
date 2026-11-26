@@ -452,6 +452,14 @@ td {
   white-space: nowrap;
 }
 
+/* Request targets and user agents are long and attacker-chosen. */
+td.wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 12rem;
+  max-width: 28rem;
+}
+
 th {
   color: var(--text-muted);
   font-weight: 600;

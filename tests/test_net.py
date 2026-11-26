@@ -2,7 +2,7 @@ import pytest
 from scapy.layers.inet import IP, TCP
 from scapy.packet import Packet, Raw
 
-from my_siem.ssh.net import ConnKind, SshConnTracker, bpf_filter, parse_ports
+from my_siem.net import ConnKind, ConnTracker, bpf_filter, parse_ports
 
 CLIENT = ("10.0.0.5", 50122)
 SERVER = ("10.0.0.1", 22)
@@ -22,7 +22,7 @@ def to_client(flags: str) -> Packet:
 
 
 def test_tracks_connection_from_syn_to_fin() -> None:
-    tracker = SshConnTracker(frozenset({22}))
+    tracker = ConnTracker(frozenset({22}))
 
     opened = tracker.handle(to_server("S"), now=100.0)
     assert opened is not None and opened.kind is ConnKind.OPENED
@@ -38,14 +38,14 @@ def test_tracks_connection_from_syn_to_fin() -> None:
 
 
 def test_reset_closes_connection() -> None:
-    tracker = SshConnTracker(frozenset({22}))
+    tracker = ConnTracker(frozenset({22}))
     tracker.handle(to_server("S"), now=0.0)
     closed = tracker.handle(to_client("R"), now=0.1)
     assert closed is not None and closed.reset
 
 
 def test_ignores_other_ports_and_mid_stream_packets() -> None:
-    tracker = SshConnTracker(frozenset({2222}))
+    tracker = ConnTracker(frozenset({2222}))
     assert tracker.handle(to_server("S"), now=0.0) is None
     assert tracker.handle(to_server("PA"), now=0.0) is None
     assert tracker.flows == {}

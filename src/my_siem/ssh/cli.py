@@ -4,8 +4,8 @@ import argparse
 from dataclasses import replace
 from typing import Any
 
+from my_siem.net import parse_ports
 from my_siem.ssh.monitor import JOURNALD, SshMonitorConfig
-from my_siem.ssh.net import parse_ports
 
 
 def _ports(spec: str) -> frozenset[int]:

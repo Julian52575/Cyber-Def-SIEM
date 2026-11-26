@@ -6,13 +6,24 @@ from fastapi.testclient import TestClient
 
 from my_siem.api import ApiServer, create_app
 from my_siem.dummy.command import DummyConfig, DummyState
+from my_siem.http.command import HttpState
+from my_siem.http.wire import parse_request
+from my_siem.https.command import HttpsState
+from my_siem.https.tls import ClientHello, Opening
 from my_siem.main import COMMANDS
+from my_siem.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.log import AuthEvent, AuthKind
-from my_siem.ssh.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.state import SshState
 from my_siem.web import History, sse
 from my_siem.web.charts import Series, line_chart, nice_ticks
-from my_siem.web.sections import SECTIONS, per_sample, ssh_metrics, top_failed_ips
+from my_siem.web.sections import (
+    SECTIONS,
+    http_metrics,
+    per_sample,
+    ssh_metrics,
+    top_counts,
+    top_failed_ips,
+)
 
 HOSTS = ["testserver"]
 XSS = "<script>alert(1)</script>"
@@ -179,3 +190,61 @@ def test_stream_pushes_rendered_sections() -> None:
     assert lines[0].startswith("retry: ")
     assert lines[2] == "event: update\n"
     assert lines[3].startswith("data: ")
+
+
+def busy_http_state() -> HttpState:
+    state = HttpState({"ports": [3000]})
+    state.source("network", "running", "ports 3000")
+    req = parse_request(
+        f"GET /q?{XSS} HTTP/1.1\r\nHost: shop.test\r\nUser-Agent: {XSS}\r\n\r\n".encode()
+    )
+    assert req is not None
+    state.request(req, ("203.0.113.9", 4242), ("10.0.0.1", 3000), ["xss"], 1.0)
+    state.response(404)
+    conn = Connection("203.0.113.9", 4242, "10.0.0.1", 3000, started=100.0)
+    state.conn(ConnEvent(ConnKind.OPENED, conn, 100.0))
+    return state
+
+
+def busy_https_state() -> HttpsState:
+    state = HttpsState({"ports": [443]})
+    conn = Connection("203.0.113.9", 4242, "10.0.0.1", 443, started=100.0)
+    state.conn(ConnEvent(ConnKind.OPENED, conn, 100.0))
+    state.handshake(Opening.HELLO, ClientHello(0x0304, XSS, ("h2",)), conn, 100.1)
+    state.handshake(Opening.PLAINTEXT_HTTP, None, conn, 100.2)
+    return state
+
+
+def test_http_page_shows_requests_with_attacker_data_escaped() -> None:
+    client = TestClient(create_app({"http": busy_http_state().snapshot}, HOSTS))
+
+    res = client.get("/ui/http")
+
+    assert res.status_code == 200
+    for shown in ("Recent requests", "shop.test", "203.0.113.9:4242", "4xx", "xss"):
+        assert shown in res.text
+    assert "Active HTTP connections" in res.text
+    assert XSS not in res.text
+    assert client.get("/http").json()["status_classes"] == {"4xx": 1}
+
+
+def test_https_page_shows_handshakes_with_server_names_escaped() -> None:
+    client = TestClient(create_app({"https": busy_https_state().snapshot}, HOSTS))
+
+    res = client.get("/ui/https")
+
+    assert res.status_code == 200
+    for shown in ("TLS 1.3", "Plaintext HTTP", "h2", "Active HTTPS connections"):
+        assert shown in res.text
+    assert XSS not in res.text
+    assert "&lt;script&gt;" in res.text
+
+
+def test_http_metrics_count_error_responses() -> None:
+    metrics = http_metrics(busy_http_state().snapshot())
+    assert metrics == {"active": 1, "requests": 1, "errors": 1, "suspicious": 1}
+
+
+def test_top_counts_skips_empty_values() -> None:
+    rows: list[dict[str, Any]] = [{"h": "a"}, {"h": None}, {"h": "b"}, {"h": "a"}]
+    assert top_counts(rows, "h") == [("a", 2), ("b", 1)]

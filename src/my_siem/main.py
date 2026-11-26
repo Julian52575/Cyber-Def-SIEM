@@ -21,6 +21,8 @@ from my_siem.config import (
     load_config,
 )
 from my_siem.dummy import command as dummy
+from my_siem.http import command as http
+from my_siem.https import command as https
 from my_siem.ssh import cli as ssh_cli
 from my_siem.ssh.monitor import SshMonitorConfig, new_state
 from my_siem.ssh.monitor import run as run_ssh
@@ -61,6 +63,24 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         apply_flags=ssh_cli.apply_flags,
         new_state=new_state,
         run=run_ssh,
+    ),
+    "http": Command(
+        help="track HTTP requests and responses on the wire",
+        add_arguments=http.add_arguments,
+        from_json=http.HttpConfig.from_json,
+        default=http.HttpConfig(),
+        apply_flags=http.apply_flags,
+        new_state=http.new_state,
+        run=http.run,
+    ),
+    "https": Command(
+        help="track TLS handshakes (server name, version) on the wire",
+        add_arguments=https.add_arguments,
+        from_json=https.HttpsConfig.from_json,
+        default=https.HttpsConfig(),
+        apply_flags=https.apply_flags,
+        new_state=https.new_state,
+        run=https.run,
     ),
     "dummy": Command(
         help="generate placeholder data (a template for new commands)",

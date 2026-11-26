@@ -32,6 +32,8 @@ my_siem [--stdout] [--no-log] [--path PATH] [--api [--api-host HOST] [--api-port
 | Command | Description |
 | ------- | ----------- |
 | `ssh`   | Track SSH connections on this system (see [below](#tracking-ssh-connections)) |
+| `http`  | Track HTTP requests and responses on the wire (see [below](#tracking-http-traffic)) |
+| `https` | Track TLS handshakes on the wire (see [below](#tracking-https-traffic)) |
 | `dummy` | Generate placeholder data, a template for new commands (see [below](#placeholder-data)) |
 
 With no command, every command runs. Name one or more to run only those, each followed by
@@ -101,6 +103,8 @@ curl localhost:12125/ssh           # JSON
 | Command | Dashboard tab and JSON state |
 | ------- | ---------------------------- |
 | `ssh`   | Effective config, source status, event counts, active connections, last 100 logins and alerts |
+| `http`  | Same base, plus responses by status class, matches per attack rule, last 100 requests |
+| `https` | Same base, plus TLS versions offered, last 100 connection openings (server name, version, ALPN) |
 | `dummy` | Config, allowed and blocked events per hour of the day, detections per rule |
 
 Only the running commands' endpoints exist (no `/ssh` under `my_siem dummy`). The dashboard
@@ -145,6 +149,66 @@ Two sources run side by side:
 Alerts are raised when one IP makes `fail_threshold` failed logins
 or `conn_threshold` new connections within `window` seconds.
 
+### Tracking HTTP traffic
+
+```sh
+sudo .venv/bin/my_siem http --ports 80,801-809,8010-8015
+```
+
+`http` sniffs plaintext HTTP/1.x on the given ports. From each request it reads the
+method, target, `Host` and `User-Agent`; from each response, the status code. Every
+request and response is logged. Requests split across TCP segments, HTTP/2 and anything
+inside TLS are not seen (see `https`, or the web server's own logs).
+
+`config/http/config.json` (each key also has a flag, shown in `my_siem http --help`):
+
+| Key                 | Default | Description                                          |
+| ------------------- | ------- | ---------------------------------------------------- |
+| `ports`             | `"3000"` | HTTP ports, as a list or a string, like `ssh`'s     |
+| `iface`             | `null`  | Interface to sniff on (`null`: all)                  |
+| `request_threshold` | `100`   | Requests from one IP that raise an alert             |
+| `error_threshold`   | `20`    | 4xx responses to one IP that raise an alert          |
+| `window`            | `60`    | Alert window, in seconds                             |
+
+Alerts:
+
+- `http_suspicious_request`, on every request matching an attack pattern: path
+  traversal, SQL injection, XSS, command injection, Log4Shell, probes for sensitive
+  files (`.env`, `.git/`, `/etc/passwd`, …) or admin pages (`wp-login.php`,
+  `phpmyadmin`, …), and scanner user agents (sqlmap, nikto, Nmap, gobuster, …).
+  Patterns are checked on the target both as sent and URL-decoded.
+- `http_request_flood`, when one IP sends `request_threshold` requests within `window`.
+- `http_error_scan`, when one IP gets `error_threshold` 4xx responses within `window`:
+  it is guessing paths.
+
+### Tracking HTTPS traffic
+
+```sh
+sudo .venv/bin/my_siem https --ports 443,8443
+```
+
+The traffic is encrypted, so `https` reads only the TLS ClientHello that opens each
+connection: the server name asked for (SNI), the highest TLS version offered and the
+application protocols (ALPN). A ClientHello split over several TCP segments is put back
+together. A connection that opens with something other than TLS is logged too, as
+plaintext HTTP or as non-TLS traffic. Connections already open when my_siem starts are
+skipped.
+
+`config/https/config.json` (each key also has a flag, shown in `my_siem https --help`):
+
+| Key              | Default | Description                                     |
+| ---------------- | ------- | ----------------------------------------------- |
+| `ports`          | `"443"` | HTTPS ports, as a list or a string              |
+| `iface`          | `null`  | Interface to sniff on (`null`: all)             |
+| `conn_threshold` | `100`   | New connections from one IP that raise an alert |
+| `window`         | `60`    | Alert window, in seconds                        |
+
+Alerts:
+
+- `https_conn_flood`, when one IP opens `conn_threshold` connections within `window`.
+- `https_legacy_tls`, when a client offers nothing newer than TLS 1.1 (at most once
+  per IP per `window`); old clients and scanners do.
+
 ### Placeholder data
 
 ```sh
@@ -177,6 +241,12 @@ Attributes use the OTel semantic conventions (`client.address`, `server.port`, `
 | `siem.ssh.login_failure`, `siem.ssh.invalid_user`   | WARN     |
 | `siem.ssh.connection.opened`, `.closed`             | INFO     |
 | `siem.alert.ssh_bruteforce`, `siem.alert.ssh_conn_flood` | ERROR |
+| `siem.http.request`                                 | INFO (WARN if it matches an attack pattern) |
+| `siem.http.response`                                | INFO (WARN for 4xx and 5xx) |
+| `siem.alert.http_suspicious_request`, `.http_request_flood`, `.http_error_scan` | ERROR |
+| `siem.https.client_hello`                           | INFO (WARN below TLS 1.2) |
+| `siem.https.plaintext_http`, `siem.https.not_tls`   | WARN     |
+| `siem.alert.https_conn_flood`, `.https_legacy_tls`  | ERROR    |
 | `siem.source.started` / `siem.source.failed`        | INFO / ERROR |
 | `siem.log.opened`, `siem.api.started`              | INFO     |
 | `siem.config.missing`, `siem.config.unknown_key`    | WARN     |
@@ -191,7 +261,10 @@ How the commands and the dashboard work inside, and how to add a command: [src/m
 
 ```
 src/my_siem/   the package (entry point: my_siem.main:main)
-  ssh/         the `ssh` command: sshd log parsing, network tracking, monitor, flags
+  ssh/         the `ssh` command: sshd log parsing, monitor, flags
+  http/        the `http` command: HTTP parsing, attack patterns, watcher, flags
+  https/       the `https` command: TLS ClientHello parsing, watcher, flags
+  net.py       TCP connection tracking and the sniffer, shared by ssh, http and https
   dummy/       the `dummy` command: placeholder data, a template for new commands
   web/         the dashboard: Jinja2 templates, SVG chart geometry, SSE stream
 config/        example configs, all values at their defaults

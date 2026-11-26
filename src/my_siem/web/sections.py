@@ -200,6 +200,276 @@ def ssh_context(snap: Snapshot, samples: Samples) -> dict[str, Any]:
     }
 
 
+# --- shared by http and https -----------------------------------------------
+
+
+def top_counts(
+    rows: list[dict[str, Any]], key: str, limit: int = 8
+) -> list[tuple[str, float]]:
+    """The most frequent values of `key` among `rows`, skipping empty ones."""
+    counts: dict[str, float] = {}
+    for row in rows:
+        value = row.get(key)
+        if value:
+            counts[str(value)] = counts.get(str(value), 0) + 1
+    return sorted(counts.items(), key=lambda kv: -kv[1])[:limit]
+
+
+def _sources(snap: Snapshot) -> list[dict[str, str]]:
+    return [
+        {"name": SOURCE_NAMES.get(name, name), **src}
+        for name, src in snap["sources"].items()
+    ]
+
+
+def _uptime_tile(snap: Snapshot) -> tuple[str, str, str]:
+    return (
+        "Uptime",
+        fmt_duration(snap["uptime"]),
+        f"since {fmt_clock(snap['started_at'])}",
+    )
+
+
+def _active_tile(active: list[dict[str, Any]]) -> tuple[str, str, str]:
+    return (
+        "Active connections",
+        fmt_number(len(active)),
+        fmt_bytes(sum(c["bytes"] for c in active)),
+    )
+
+
+def _alerts(snap: Snapshot) -> list[dict[str, Any]]:
+    return [{**a, "time": fmt_clock(a["at"])} for a in reversed(snap["recent_alerts"])]
+
+
+def _column(samples: Samples, key: str) -> list[float]:
+    return [m.get(key, 0) for _, m in samples]
+
+
+# --- http ------------------------------------------------------------------
+
+STATUS_CLASSES = ("1xx", "2xx", "3xx", "4xx", "5xx")
+
+
+def http_metrics(snap: Snapshot) -> Metrics:
+    counts = snap["counts"]
+    statuses = snap["status_classes"]
+    return {
+        "active": len(snap["active_connections"]),
+        "requests": counts.get("requests", 0),
+        "errors": statuses.get("4xx", 0) + statuses.get("5xx", 0),
+        "suspicious": counts.get("suspicious", 0),
+    }
+
+
+def http_context(snap: Snapshot, samples: Samples) -> dict[str, Any]:
+    counts = snap["counts"]
+    statuses = snap["status_classes"]
+    active = snap["active_connections"]
+    requests = snap["recent_requests"]
+    times = [fmt_clock(at) for at, _ in samples]
+    errors = statuses.get("4xx", 0) + statuses.get("5xx", 0)
+    return {
+        "sources": _sources(snap),
+        "tiles": [
+            _uptime_tile(snap),
+            _active_tile(active),
+            ("Requests", fmt_number(counts.get("requests", 0)), ""),
+            ("Error responses", fmt_number(errors), "4xx and 5xx"),
+            ("Suspicious requests", fmt_number(counts.get("suspicious", 0)), ""),
+            ("Alerts", fmt_number(counts.get("alerts", 0)), ""),
+        ],
+        "line_charts": [
+            line_chart(
+                "Active connections",
+                "Open HTTP connections at each sample.",
+                times,
+                [
+                    Series(
+                        "Active connections",
+                        "var(--series-1)",
+                        _column(samples, "active"),
+                    )
+                ],
+                fmt_number,
+            ),
+            line_chart(
+                "New events per sample",
+                "Increase since the previous sample.",
+                times,
+                [
+                    Series(
+                        "Requests",
+                        "var(--series-1)",
+                        per_sample(_column(samples, "requests")),
+                    ),
+                    Series(
+                        "Error responses",
+                        "var(--series-2)",
+                        per_sample(_column(samples, "errors")),
+                    ),
+                    Series(
+                        "Suspicious requests",
+                        "var(--series-3)",
+                        per_sample(_column(samples, "suspicious")),
+                    ),
+                ],
+                fmt_number,
+            ),
+        ],
+        "bar_lists": [
+            bar_list(
+                "Response status",
+                "Since the SIEM started.",
+                [(c, statuses.get(c, 0)) for c in STATUS_CLASSES],
+                fmt_number,
+            ),
+            bar_list(
+                "Attack patterns",
+                "Suspicious requests by rule, since the SIEM started.",
+                sorted(snap["rules"].items(), key=lambda kv: -kv[1]),
+                fmt_number,
+                empty="No suspicious request.",
+            ),
+            bar_list(
+                "Top client addresses",
+                f"Among the last {len(requests)} requests.",
+                top_counts(requests, "client_ip"),
+                fmt_number,
+                empty="No request seen.",
+            ),
+            bar_list(
+                "Top hosts",
+                f"Host header of the last {len(requests)} requests.",
+                top_counts(requests, "host"),
+                fmt_number,
+                empty="No request seen.",
+            ),
+        ],
+        "flow": flow_diagram(active, _describe_edge) if active else None,
+        "alerts": _alerts(snap),
+        "requests": [{**r, "time": fmt_clock(r["at"])} for r in reversed(requests)],
+        "config": snap["config"],
+    }
+
+
+# --- https -----------------------------------------------------------------
+
+
+def https_metrics(snap: Snapshot) -> Metrics:
+    counts = snap["counts"]
+    return {
+        "active": len(snap["active_connections"]),
+        "handshakes": counts.get("hello", 0),
+        "conn_opened": counts.get("conn_opened", 0),
+        "alerts": counts.get("alerts", 0),
+    }
+
+
+HANDSHAKE_KINDS = {
+    "hello": "TLS handshake",
+    "not_tls": "Not TLS",
+    "plaintext_http": "Plaintext HTTP",
+}
+
+
+def https_context(snap: Snapshot, samples: Samples) -> dict[str, Any]:
+    counts = snap["counts"]
+    active = snap["active_connections"]
+    handshakes = snap["recent_handshakes"]
+    hellos = [h for h in handshakes if h["kind"] == "hello"]
+    times = [fmt_clock(at) for at, _ in samples]
+    return {
+        "sources": _sources(snap),
+        "tiles": [
+            _uptime_tile(snap),
+            _active_tile(active),
+            ("TLS handshakes", fmt_number(counts.get("hello", 0)), ""),
+            ("Without server name", fmt_number(counts.get("no_sni", 0)), "no SNI"),
+            ("Legacy TLS", fmt_number(counts.get("legacy_tls", 0)), "below TLS 1.2"),
+            ("Alerts", fmt_number(counts.get("alerts", 0)), ""),
+        ],
+        "line_charts": [
+            line_chart(
+                "Active connections",
+                "Open HTTPS connections at each sample.",
+                times,
+                [
+                    Series(
+                        "Active connections",
+                        "var(--series-1)",
+                        _column(samples, "active"),
+                    )
+                ],
+                fmt_number,
+            ),
+            line_chart(
+                "New events per sample",
+                "Increase since the previous sample.",
+                times,
+                [
+                    Series(
+                        "New connections",
+                        "var(--series-1)",
+                        per_sample(_column(samples, "conn_opened")),
+                    ),
+                    Series(
+                        "TLS handshakes",
+                        "var(--series-2)",
+                        per_sample(_column(samples, "handshakes")),
+                    ),
+                    Series(
+                        "Alerts",
+                        "var(--series-3)",
+                        per_sample(_column(samples, "alerts")),
+                    ),
+                ],
+                fmt_number,
+            ),
+        ],
+        "bar_lists": [
+            bar_list(
+                "TLS versions offered",
+                "Highest version each client offered, since the SIEM started.",
+                sorted(snap["tls_versions"].items(), key=lambda kv: -kv[1]),
+                fmt_number,
+                empty="No handshake seen.",
+            ),
+            bar_list(
+                "Connection openings",
+                "What clients sent first, since the SIEM started.",
+                [(label, counts.get(k, 0)) for k, label in HANDSHAKE_KINDS.items()],
+                fmt_number,
+            ),
+            bar_list(
+                "Top server names",
+                f"SNI of the last {len(hellos)} handshakes.",
+                top_counts(hellos, "server_name"),
+                fmt_number,
+                empty="No server name seen.",
+            ),
+            bar_list(
+                "Top client addresses",
+                f"Among the last {len(handshakes)} connections.",
+                top_counts(handshakes, "client_ip"),
+                fmt_number,
+                empty="No connection seen.",
+            ),
+        ],
+        "flow": flow_diagram(active, _describe_edge) if active else None,
+        "alerts": _alerts(snap),
+        "handshakes": [
+            {
+                **h,
+                "time": fmt_clock(h["at"]),
+                "outcome": HANDSHAKE_KINDS.get(h["kind"], h["kind"]),
+            }
+            for h in reversed(handshakes)
+        ],
+        "config": snap["config"],
+    }
+
+
 # --- dummy -----------------------------------------------------------------
 
 
@@ -238,5 +508,7 @@ def dummy_context(snap: Snapshot, samples: Samples) -> dict[str, Any]:
 # One tab per command, keyed by command name, shown while that command runs.
 SECTIONS = {
     "ssh": Section("ssh", "SSH", "ssh.html", ssh_metrics, ssh_context),
+    "http": Section("http", "HTTP", "http.html", http_metrics, http_context),
+    "https": Section("https", "HTTPS", "https.html", https_metrics, https_context),
     "dummy": Section("dummy", "Dummy", "dummy.html", None, dummy_context),
 }

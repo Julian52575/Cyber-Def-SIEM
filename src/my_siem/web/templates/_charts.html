@@ -87,17 +87,17 @@
 </figure>
 {%- endmacro %}
 
-{% macro flow(f) -%}
+{% macro flow(f, what="SSH") -%}
 <figure class="card chart">
   <figcaption>
-    <h3>Active SSH connections</h3>
-    <p class="muted">Client addresses (left) connected to this host's SSH endpoints (right).</p>
+    <h3>Active {{ what }} connections</h3>
+    <p class="muted">Client addresses (left) connected to this host's {{ what }} endpoints (right).</p>
   </figcaption>
   {%- if not f %}
   <p class="empty">No active connection.</p>
   {%- else %}
   <div class="flow-wrap">
-  <svg class="flow" viewBox="0 0 {{ f.width }} {{ f.height }}" role="img" aria-label="Active SSH connections diagram">
+  <svg class="flow" viewBox="0 0 {{ f.width }} {{ f.height }}" role="img" aria-label="Active {{ what }} connections diagram">
     {%- for e in f.edges %}
     <g class="edge">
       <title>{{ e.title }}</title>
@@ -115,4 +115,49 @@
   </div>
   {%- endif %}
 </figure>
+{%- endmacro %}
+
+
+{% macro sources(items) -%}
+<div class="sources">
+  {%- for src in items %}
+  <div class="source"><strong>{{ src.name }}</strong> {{ badge(src.status) }} <span class="muted">{{ src.detail }}</span></div>
+  {%- else %}
+  <span class="muted">No source started yet.</span>
+  {%- endfor %}
+</div>
+{%- endmacro %}
+
+{% macro alerts_table(alerts) -%}
+<div class="card">
+  <h3>Recent alerts</h3>
+  {%- if not alerts %}
+  <p class="empty">No alert.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Time</th><th>Alert</th><th>Address</th><th>Details</th></tr></thead>
+    <tbody>
+      {%- for a in alerts %}
+      <tr>
+        <td>{{ a.time }}</td>
+        <td><span class="badge badge-critical"><span aria-hidden="true">✕</span> {{ a.name }}</span></td>
+        <td>{{ a.ip }}</td>
+        <td>{{ a.message }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{% macro config_block(config, id) -%}
+<details class="card" id="{{ id }}-config">
+  <summary>Monitor configuration</summary>
+  <dl class="config">
+    {%- for k, v in config.items() %}
+    <div><dt>{{ k }}</dt><dd>{{ v | tojson }}</dd></div>
+    {%- endfor %}
+  </dl>
+</details>
 {%- endmacro %}

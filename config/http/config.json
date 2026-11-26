@@ -1,0 +1,7 @@
+{
+  "ports": "3000",
+  "iface": null,
+  "request_threshold": 100,
+  "error_threshold": 20,
+  "window": 60
+}

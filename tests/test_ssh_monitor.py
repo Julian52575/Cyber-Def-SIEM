@@ -7,9 +7,9 @@ from opentelemetry.sdk._logs import ReadableLogRecord
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
 from my_siem.detect import RateDetector
+from my_siem.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.log import AuthEvent, AuthKind
 from my_siem.ssh.monitor import report_auth, report_conn
-from my_siem.ssh.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.state import SshState
 from my_siem.telemetry import JsonLinesExporter, event_logger, make_provider
 
