@@ -334,5 +334,7 @@ def import_source(cfg: HttpConfig) -> Source:
         replay=replay,
         kinds=("siem.http.request", "siem.http.response", "siem.alert.http_"),
         alert_window=cfg.window,
+        # TODO(import): an hour the sniffer logged anything in is skipped whole, losing
+        # its unsniffed requests. Ends when the two can be matched request by request.
         skip_watched_hours=True,
     )

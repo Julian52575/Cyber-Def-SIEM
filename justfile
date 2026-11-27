@@ -40,6 +40,10 @@ check-test:
 set-githooks:
     git config core.hooksPath .githooks
 
+# List the code's annotations (README > Code annotations)
+tags:
+    @git grep -nE '\b(TODO|FIXME|HACK|PERF|SECURITY)\([a-z0-9_-]+\):' -- src tests justfile .githooks || echo "No annotation."
+
 # Build a standalone ELF binary at dist/my_siem, skipped when no source changed since the last build
 build: write-version
     #!/usr/bin/env bash

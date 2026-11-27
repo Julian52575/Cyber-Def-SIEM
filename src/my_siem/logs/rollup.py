@@ -54,6 +54,8 @@ class Rollup:
                 start = tier.start(at)
                 if start >= tier.oldest(now):
                     self._tiers[tier.name].setdefault(start, Counter()).update(keys)
+            # TODO(logs): saved on the minute's first event, not on the minute: a quiet
+            # command saves late (nothing is lost, exit saves too). Ends with a timer.
             minute = TIERS["minute"].start(now)
             if minute != self._saved_minute:
                 self._saved_minute = minute

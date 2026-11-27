@@ -22,6 +22,7 @@
         </p>
         {%- else %}
         <noscript><p class="error">The import needs JavaScript.</p></noscript>
+        {#- HACK(import): data-start-get and data-token serve the GET fallback (api.py). #}
         <form id="import-form" class="import-form" data-estimate="{{ root }}admin/import/estimate" data-start="{{ root }}admin/import" data-start-get="{{ root }}admin/import/start" data-token="{{ import_token }}" data-status="{{ root }}admin/import">
           <fieldset class="import-commands">
             <legend>Commands to import</legend>

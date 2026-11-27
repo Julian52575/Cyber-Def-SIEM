@@ -180,6 +180,9 @@ def _admin_routes(app: FastAPI, dashboard: Dashboard, importer: Importer) -> Non
     def start_import(body: ImportRequest) -> dict[str, Any]:
         return start(body.commands, body.unit, body.count)
 
+    # HACK(import): a GET that starts an import, because the range gateway proxies the
+    # dashboard for GET only. Ends when it forwards POST: then drop this route, the
+    # token (Importer.token) and admin.js's fallback, and keep POST /admin/import alone.
     @app.get(
         "/admin/import/start",
         status_code=202,

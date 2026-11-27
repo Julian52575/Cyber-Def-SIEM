@@ -148,7 +148,8 @@ async function start() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pending),
     });
-    // A proxy that only forwards GET (my_siem itself never answers this route 405).
+    // HACK(import): a proxy that forwards GET only answered 405 (my_siem never does).
+    // Goes with /admin/import/start in api.py.
     if (res.status === 405) {
       const query = new URLSearchParams({
         unit: pending.unit,

@@ -190,6 +190,8 @@ class HourlyLogExporter(LogRecordExporter):
 
     def export(self, batch: Sequence[ReadableLogRecord]) -> LogRecordExportResult:
         with self._lock:
+            # TODO(logs): the new hour's file and sweep wait for its first event, so a
+            # quiet command gzips and ages files late. Ends with a timer on the hour.
             hour = hour_start(self._clock())
             if hour != self._hour:
                 self._out.close()

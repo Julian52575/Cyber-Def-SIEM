@@ -399,6 +399,7 @@ tests/         pytest suite
 | `just check-typecheck` | Type-check `src` with mypy                          |
 | `just check-test`      | Run the pytest suite                                |
 | `just set-githooks`    | Use `.githooks/` as the git hooks directory         |
+| `just tags`            | List the code's [annotations](#code-annotations) (`TODO`, `FIXME`, `HACK`, `PERF`, `SECURITY`) |
 | `just build`           | Build a standalone binary at `dist/my_siem`, skipped when no source changed |
 | `just install DEST`    | Build, then install the binary into `DEST`: a local folder or an ssh target like `user@host:/opt/bin` |
 
@@ -458,3 +459,33 @@ Once `just set-githooks` has run, the hooks check every commit and push:
   Opt out with `git config hooks.preventShadowMerge false`.
 
 Hooks give local feedback only; CI and the branch rulesets are the real gates.
+
+### Code annotations
+
+Code that will need more work says so where it lives, with a tag comment that names the
+kind of work, so `just tags` lists everything that is pending:
+
+```python
+# HACK(import): a GET can start an import, for a proxy that forwards GET only.
+# Ends when the proxy forwards POST; then drop this route and the token. #42
+```
+
+- **Shape**: `TAG(scope): what is wrong or missing.` then why it is so, and **what would
+  end it** (the condition to remove the comment). Add an issue number (`#42`) when one exists.
+- **Scope** is the area (`import`, `api`, `logs`, `ssh`...), not a person: `git blame`
+  already names the author.
+- **One tag per comment**, on the line above the code it is about. The same tags go in
+  JavaScript, CSS and templates, in their own comment syntax (`//`, `/* */`, `{# #}`).
+- Fix the cause or delete the tag in the change that ends it; a tag no longer true is a bug.
+
+| Tag        | Means | Typical next step |
+| ---------- | ----- | ----------------- |
+| `TODO`     | Planned work not done yet: a missing case, feature or test | Implement |
+| `FIXME`    | Known wrong behaviour, left for now | Fix the bug |
+| `HACK`     | Works, but is a workaround or temporary: shaped by a constraint outside the code, or by haste | Refactor once the constraint is gone |
+| `PERF`     | Known performance limit, fine at today's scale | Optimize when it shows |
+| `SECURITY` | Accepted security trade-off, to revisit | Remove the trade-off |
+
+These are the codetags most tools know: editors highlight them (VS Code's Todo Tree,
+JetBrains' TODO view), and the scope-in-parentheses form is Google's style guide one.
+A plain comment still explains *why* code is the way it is; tags are only for work left.
