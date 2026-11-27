@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · my_siem</title>
+  <link rel="stylesheet" href="{{ root }}static/style.css?v={{ asset_version }}">
+  <script src="{{ root }}static/live.js?v={{ asset_version }}" defer></script>
+  {%- block scripts %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <strong>my_siem</strong>
+      <span class="muted">running {% for c in commands %}<code>{{ c }}</code>{{ ", " if not loop.last }}{% endfor %}</span>
+      <span id="live-status" class="muted">static page: JavaScript is off</span>
+      {#- Hidden until live.js runs: without it nothing polls. #}
+      <label id="poll" class="muted" hidden>refresh every
+        <select id="poll-every">
+          {%- for s in poll_choices %}
+          <option value="{{ s }}"{% if s * 1000 == every_ms %} selected{% endif %}>{{ s }} s</option>
+          {%- endfor %}
+        </select>
+      </label>
+      {#- Hidden until live.js runs: switching needs it. #}
+      <button type="button" id="theme-toggle" class="theme-button" hidden>Light mode</button>
+      {%- if help %}
+      {#- popovertarget opens it without JavaScript, so it works under the CSP and with scripts off. #}
+      <button type="button" class="help-button" popovertarget="help" aria-haspopup="dialog">Help</button>
+      {%- endif %}
+    </div>
+  </header>
+  <main>
+    <nav class="tabs" aria-label="Sections">
+      {%- for s in sections %}
+      <a href="{{ root }}ui/{{ s.id }}?{{ query }}"{% if s.id == current %} aria-current="page"{% endif %}>{{ s.title }}</a>
+      {%- endfor %}
+      <a class="tab-admin" href="{{ root }}ui/admin?{{ query }}"{% if current == "admin" %} aria-current="page"{% endif %}>Admin</a>
+    </nav>
+    {%- block content %}{% endblock %}
+  </main>
+  <footer class="footer muted">my_siem {{ version }}</footer>
+  {%- if help %}
+  <div id="help" class="help" popover role="dialog" aria-label="{{ title }} help">
+    <div class="help-head">
+      <strong>{{ title }} help</strong>
+      <button type="button" popovertarget="help" popovertargetaction="hide">Close</button>
+    </div>
+    <article class="help-body">{{ help }}</article>
+  </div>
+  {%- endif %}
+</body>
+</html>

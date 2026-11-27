@@ -1,0 +1,163 @@
+{% macro tiles(items) -%}
+<div class="tiles">
+  {%- for label, value, sub in items %}
+  <div class="card tile">
+    <div class="tile-label">{{ label }}</div>
+    <div class="tile-value">{{ value }}</div>
+    {%- if sub %}<div class="muted tile-sub">{{ sub }}</div>{% endif %}
+  </div>
+  {%- endfor %}
+</div>
+{%- endmacro %}
+
+{# Status never rides on color alone: icon + label + color. #}
+{% macro badge(status) -%}
+{%- set tone = {"running": "good", "failed": "critical"}.get(status, "warning") -%}
+<span class="badge badge-{{ tone }}"><span aria-hidden="true">{{ {"running": "✓", "failed": "✕"}.get(status, "•") }}</span> {{ status }}</span>
+{%- endmacro %}
+
+{% macro line_chart(c, id) -%}
+<figure class="card chart">
+  <figcaption>
+    <h3>{{ c.title }}</h3>
+    <p class="muted">{{ c.subtitle }}</p>
+  </figcaption>
+  {%- if c.series | length >= 2 %}
+  <ul class="legend">
+    {%- for s in c.series %}
+    <li><span class="swatch" style="background: {{ s.color }}"></span>{{ s.name }}</li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- if c.empty %}
+  <p class="empty">No data yet.</p>
+  {%- else %}
+  <div class="plot">
+    <div class="y-ticks" aria-hidden="true">
+      {%- for t in c.y_ticks %}<span class="tick" style="bottom: {{ '%.2f' % t.pct }}%">{{ t.label }}</span>{% endfor -%}
+    </div>
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="{{ c.title }}">
+      {%- for t in c.y_ticks %}
+      <line class="{{ 'axis' if loop.first else 'grid' }}" x1="0" x2="100" y1="{{ '%.2f' % t.y }}" y2="{{ '%.2f' % t.y }}"/>
+      {%- endfor %}
+      {%- for col in c.columns %}
+      <rect class="hover" x="{{ '%.2f' % col.x }}" y="0" width="{{ '%.2f' % col.width }}" height="100"><title>{{ col.title }}</title></rect>
+      {%- endfor %}
+      {%- for s in c.series %}
+      <path class="line" d="{{ s.d }}" stroke="{{ s.color }}"/>
+      {%- endfor %}
+    </svg>
+    <div class="x-ticks muted" aria-hidden="true">
+      {%- for label in c.x_ticks %}<span class="tick">{{ label }}</span>{% endfor -%}
+    </div>
+  </div>
+  <details id="{{ id }}-table">
+    <summary>Show table</summary>
+    <table>
+      <thead><tr><th>Time</th>{% for h in c.table.head %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {%- for row in c.table.rows %}
+        <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </details>
+  {%- endif %}
+</figure>
+{%- endmacro %}
+
+{% macro bar_list(b) -%}
+<figure class="card chart">
+  <figcaption>
+    <h3>{{ b.title }}</h3>
+    <p class="muted">{{ b.subtitle }}</p>
+  </figcaption>
+  {%- if not b.rows %}
+  <p class="empty">{{ b.empty }}</p>
+  {%- else %}
+  <ul class="bars">
+    {%- for r in b.rows %}
+    <li title="{{ r.label }}: {{ r.value }}">
+      <span class="bar-label">{{ r.label }}</span>
+      <span class="bar-track"><span class="bar" style="width: {{ '%.2f' % r.pct }}%"></span><span class="bar-value">{{ r.value }}</span></span>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+</figure>
+{%- endmacro %}
+
+{% macro flow(f, what="SSH") -%}
+<figure class="card chart">
+  <figcaption>
+    <h3>Active {{ what }} connections</h3>
+    <p class="muted">Client addresses (left) connected to this host's {{ what }} endpoints (right).</p>
+  </figcaption>
+  {%- if not f %}
+  <p class="empty">No active connection.</p>
+  {%- else %}
+  <div class="flow-wrap">
+  <svg class="flow" viewBox="0 0 {{ f.width }} {{ f.height }}" role="img" aria-label="Active {{ what }} connections diagram">
+    {%- for e in f.edges %}
+    <g class="edge">
+      <title>{{ e.title }}</title>
+      <path d="{{ e.d }}"/>
+      {%- if e.count > 1 %}<text class="tick" x="{{ e.label_x }}" y="{{ e.label_y }}" text-anchor="middle">×{{ e.count }}</text>{% endif %}
+    </g>
+    {%- endfor %}
+    {%- for n in f.clients %}
+    <g class="node"><rect x="4" y="{{ n.y - 12 }}" width="{{ f.node_w }}" height="24" rx="6"/><text x="14" y="{{ n.y }}" dominant-baseline="middle">{{ n.label }}</text></g>
+    {%- endfor %}
+    {%- for n in f.servers %}
+    <g class="node node-server"><rect x="{{ f.right + 4 }}" y="{{ n.y - 12 }}" width="{{ f.node_w }}" height="24" rx="6"/><text x="{{ f.right + 14 }}" y="{{ n.y }}" dominant-baseline="middle">{{ n.label }}</text></g>
+    {%- endfor %}
+  </svg>
+  </div>
+  {%- endif %}
+</figure>
+{%- endmacro %}
+
+
+{% macro sources(items) -%}
+<div class="sources">
+  {%- for src in items %}
+  <div class="source"><strong>{{ src.name }}</strong> {{ badge(src.status) }} <span class="muted">{{ src.detail }}</span></div>
+  {%- else %}
+  <span class="muted">No source started yet.</span>
+  {%- endfor %}
+</div>
+{%- endmacro %}
+
+{% macro alerts_table(alerts) -%}
+<div class="card">
+  <h3>Recent alerts</h3>
+  {%- if not alerts %}
+  <p class="empty">No alert.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Time</th><th>Alert</th><th>Address</th><th>Details</th></tr></thead>
+    <tbody>
+      {%- for a in alerts %}
+      <tr>
+        <td>{{ a.time }}</td>
+        <td><span class="badge badge-critical"><span aria-hidden="true">✕</span> {{ a.name }}</span></td>
+        <td>{{ a.ip }}</td>
+        <td>{{ a.message }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{% macro config_block(config, id) -%}
+<details class="card" id="{{ id }}-config">
+  <summary>Monitor configuration</summary>
+  <dl class="config">
+    {%- for k, v in config.items() %}
+    <div><dt>{{ k }}</dt><dd>{{ v | tojson }}</dd></div>
+    {%- endfor %}
+  </dl>
+</details>
+{%- endmacro %}

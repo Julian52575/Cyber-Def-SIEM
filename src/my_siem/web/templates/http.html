@@ -1,0 +1,47 @@
+{% import "_charts.html" as ch %}
+<p class="muted updated">Updated {{ updated | clock }} · {{ window }}</p>
+
+{{ ch.sources(sources) }}
+
+{{ ch.tiles(tiles) }}
+
+<div class="grid">
+  {%- for c in line_charts %}
+  {{ ch.line_chart(c, "http-line-" ~ loop.index) }}
+  {%- endfor %}
+  {%- for b in bar_lists %}
+  {{ ch.bar_list(b) }}
+  {%- endfor %}
+</div>
+
+{{ ch.flow(flow, "HTTP") }}
+
+{{ ch.alerts_table(alerts) }}
+
+<div class="card">
+  <h3>Recent requests</h3>
+  {%- if not requests %}
+  <p class="empty">No request seen.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Time</th><th>From</th><th>Method</th><th>Host</th><th>Target</th><th>User agent</th><th>Matched</th></tr></thead>
+    <tbody>
+      {%- for r in requests %}
+      <tr>
+        <td>{{ r.time }}</td>
+        <td>{{ r.client_ip }}:{{ r.client_port }}</td>
+        <td>{{ r.method }}</td>
+        <td>{{ r.host or "–" }}</td>
+        <td class="wrap">{{ r.target }}</td>
+        <td class="wrap">{{ r.user_agent or "–" }}</td>
+        <td>
+          {%- for rule in r.rules %}<span class="badge badge-warning"><span aria-hidden="true">!</span> {{ rule }}</span> {% else %}–{% endfor -%}
+        </td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+</div>
+
+{{ ch.config_block(config, "http") }}

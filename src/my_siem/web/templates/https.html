@@ -1,0 +1,45 @@
+{% import "_charts.html" as ch %}
+<p class="muted updated">Updated {{ updated | clock }} · {{ window }}</p>
+
+{{ ch.sources(sources) }}
+
+{{ ch.tiles(tiles) }}
+
+<div class="grid">
+  {%- for c in line_charts %}
+  {{ ch.line_chart(c, "https-line-" ~ loop.index) }}
+  {%- endfor %}
+  {%- for b in bar_lists %}
+  {{ ch.bar_list(b) }}
+  {%- endfor %}
+</div>
+
+{{ ch.flow(flow, "HTTPS") }}
+
+{{ ch.alerts_table(alerts) }}
+
+<div class="card">
+  <h3>Recent connections</h3>
+  {%- if not handshakes %}
+  <p class="empty">No connection seen.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Opening</th><th>Server name</th><th>TLS</th><th>ALPN</th></tr></thead>
+    <tbody>
+      {%- for h in handshakes %}
+      <tr>
+        <td>{{ h.time }}</td>
+        <td>{{ h.client_ip }}:{{ h.client_port }}</td>
+        <td>{{ h.server_ip }}:{{ h.server_port }}</td>
+        <td>{{ h.outcome }}</td>
+        <td>{{ h.server_name or "–" }}</td>
+        <td>{{ h.version or "–" }}</td>
+        <td>{{ h.alpn | join(", ") or "–" }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+</div>
+
+{{ ch.config_block(config, "https") }}

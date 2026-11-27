@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block scripts %}
+  <script src="{{ root }}static/admin.js?v={{ asset_version }}" defer></script>
+{%- endblock %}
+{% block content %}
+    <section class="admin-static">
+      {{ jobs }}
+
+      {{ usage }}
+
+      <div class="card" id="import">
+        <h3>Log importer</h3>
+        <p class="muted card-note">
+          Reads the host's own logs again and logs what they hold as the command would have, alerts included.
+          Only closed hours are written, up to the start of the current one, which the running command covers.
+          Records already in the logs are skipped, so an import can be run again safely.
+        </p>
+        {%- if not sources %}
+        <p class="empty">
+          {%- if log_root is none %}Log files are off (<code>--no-log</code>): there is nowhere to import into.
+          {%- else %}No running command can import logs. <code>ssh</code> reads sshd's logs, <code>http</code> the web server's access log.{% endif -%}
+        </p>
+        {%- else %}
+        <noscript><p class="error">The import needs JavaScript.</p></noscript>
+        {#- HACK(import): data-start-get and data-token serve the GET fallback (api.py). #}
+        <form id="import-form" class="import-form" data-estimate="{{ root }}admin/import/estimate" data-start="{{ root }}admin/import" data-start-get="{{ root }}admin/import/start" data-token="{{ import_token }}" data-status="{{ root }}admin/import">
+          <fieldset class="import-commands">
+            <legend>Commands to import</legend>
+            {%- for s in sources %}
+            <label><input type="checkbox" name="command" value="{{ s.name }}" checked> <code>{{ s.name }}</code> <span class="muted">from {{ s.where }}</span></label>
+            {%- endfor %}
+          </fieldset>
+          <fieldset class="units">
+            <legend>Over the last</legend>
+            <input type="number" id="import-count" name="count" min="1" max="{{ units[-1][2] }}" value="1" required inputmode="numeric" aria-label="How many">
+            {%- for u, label, max in units %}
+            <label><input type="radio" name="unit" value="{{ u }}" data-max="{{ max }}"{% if loop.last %} checked{% endif %}> {{ label }} <span class="muted">(up to {{ max }})</span></label>
+            {%- endfor %}
+          </fieldset>
+          <div class="import-actions">
+            <button type="submit" class="primary" id="import-estimate">Estimate…</button>
+            <span id="import-message" class="muted" role="status"></span>
+          </div>
+        </form>
+        <div id="import-progress" hidden>
+          <h4 id="import-progress-title"></h4>
+          <table>
+            <thead><tr><th>Command</th><th>Source</th><th>Read</th><th>New</th><th>Hours</th><th>Size</th><th>Status</th></tr></thead>
+            <tbody id="import-progress-rows"></tbody>
+          </table>
+        </div>
+        <dialog id="import-confirm" aria-labelledby="import-confirm-title">
+          <h3 id="import-confirm-title">Import these logs?</h3>
+          <p id="import-confirm-span" class="muted"></p>
+          <table>
+            <thead><tr><th>Command</th><th>Source</th><th>Read</th><th>New</th><th>Estimated size</th><th>Folder after</th></tr></thead>
+            <tbody id="import-confirm-rows"></tbody>
+          </table>
+          <ul id="import-confirm-warnings" class="warnings"></ul>
+          <div class="dialog-actions">
+            <button type="button" id="import-cancel">Cancel</button>
+            <button type="button" id="import-go" class="primary">Import</button>
+          </div>
+        </dialog>
+        {%- endif %}
+      </div>
+    </section>
+{%- endblock %}

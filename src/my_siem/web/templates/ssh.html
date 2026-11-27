@@ -1,0 +1,69 @@
+{% import "_charts.html" as ch %}
+<p class="muted updated">Updated {{ updated | clock }} · {{ window }}</p>
+
+<div class="sources">
+  {%- for src in sources %}
+  <div class="source"><strong>{{ src.name }}</strong> {{ ch.badge(src.status) }} <span class="muted">{{ src.detail }}</span></div>
+  {%- else %}
+  <span class="muted">No source started yet.</span>
+  {%- endfor %}
+</div>
+
+{{ ch.tiles(tiles) }}
+
+<div class="grid">
+  {%- for c in line_charts %}
+  {{ ch.line_chart(c, "ssh-line-" ~ loop.index) }}
+  {%- endfor %}
+  {%- for b in bar_lists %}
+  {{ ch.bar_list(b) }}
+  {%- endfor %}
+</div>
+
+{{ ch.flow(flow) }}
+
+<div class="card">
+  <h3>Recent alerts</h3>
+  {%- if not alerts %}
+  <p class="empty">No alert.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Time</th><th>Alert</th><th>Address</th><th>Details</th></tr></thead>
+    <tbody>
+      {%- for a in alerts %}
+      <tr>
+        <td>{{ a.time }}</td>
+        <td><span class="badge badge-critical"><span aria-hidden="true">✕</span> {{ a.name }}</span></td>
+        <td>{{ a.ip }}</td>
+        <td>{{ a.message }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+</div>
+
+<div class="card">
+  <h3>Recent logins</h3>
+  {%- if not logins %}
+  <p class="empty">No login seen.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Time</th><th>Outcome</th><th>User</th><th>From</th><th>Method</th></tr></thead>
+    <tbody>
+      {%- for l in logins %}
+      <tr><td>{{ l.time }}</td><td>{{ l.outcome }}</td><td>{{ l.user }}</td><td>{{ l.ip }}:{{ l.port }}</td><td>{{ l.method or "–" }}</td></tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- endif %}
+</div>
+
+<details class="card" id="ssh-config">
+  <summary>Monitor configuration</summary>
+  <dl class="config">
+    {%- for k, v in config.items() %}
+    <div><dt>{{ k }}</dt><dd>{{ v | tojson }}</dd></div>
+    {%- endfor %}
+  </dl>
+</details>

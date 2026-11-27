@@ -50,7 +50,7 @@ jobs:
       - name: Build the sdist and wheel
         run: uv build
 
-  # Every Dockerfile / Containerfile tracked in the repo (none yet: passes) --
+  # Every Dockerfile / Containerfile tracked in the repo --
   # a new one is picked up without touching this workflow. Mounts the repo so hadolint
   # reads a root .hadolint.yaml if one exists.
   dockerfile-lint:
@@ -129,7 +129,7 @@ jobs:
         run: pipx run zizmor==1.31.1 --format github .github/
 
   # Software-composition analysis of THIS branch: osv-scanner finds every
-  # lockfile in the repo (uv.lock here) and checks it against the OSV database.
+  # lockfile in the repo (uv.lock) and checks it against the OSV database.
   #
   # Gate: fails on any Critical or High advisory (CVSS >= 7), on 5 or more
   # Moderate+Low, or when the scan cannot complete -- an unknown posture is not

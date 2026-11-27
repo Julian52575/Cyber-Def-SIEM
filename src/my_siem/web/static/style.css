@@ -1,0 +1,837 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --page: #0b0b0b;
+  --surface: #191919;
+  --text: #efefef;
+  --text-muted: #9c9c9c;
+  --grid: #303030;
+  --axis: #474747;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #338ced;
+  --series-1: #338ced;
+  --series-2: #e76624;
+  --series-3: #00a888;
+  --good: #0aac23;
+  --good-text: #53c556;
+  --warning: #fbb315;
+  --critical: #dc3c3d;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f9f9f9;
+  --surface: #ffffff;
+  --text: #191919;
+  --text-muted: #666666;
+  --grid: #e7e7e7;
+  --axis: #c2c2c2;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #257de0;
+  --series-1: #257de0;
+  --series-2: #f47230;
+  --series-3: #00b894;
+  --good-text: #006c10;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+code {
+  font-size: 0.9em;
+}
+
+/* Top bar */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 1rem;
+}
+
+.topbar-inner {
+  max-width: 72rem;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+#live-status {
+  margin-left: auto;
+  font-size: 0.875rem;
+}
+
+#poll {
+  font-size: 0.875rem;
+}
+
+#poll select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.25rem;
+}
+
+/* Layout */
+
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* Footer */
+
+.footer {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+
+h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+  overflow-x: auto;
+}
+
+.tabs a {
+  padding: 0.5rem 0.75rem;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.tabs a[aria-current="page"] {
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Time window */
+
+form.window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.units {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.units legend {
+  float: left;
+  margin-right: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.units label {
+  cursor: pointer;
+}
+
+.window-count {
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#window-slider {
+  flex: 1;
+  min-width: 8rem;
+  accent-color: var(--accent);
+}
+
+.window-number {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.window-number input {
+  width: 4.5rem;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--page);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+}
+
+.window-number input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.window-number input:invalid {
+  border-color: var(--critical);
+}
+
+/* Fixed width, so the slider does not jump between "hour" and "hours". */
+#window-unit {
+  min-width: 4.5rem;
+}
+
+section > * + * {
+  margin-top: 1rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 1rem;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+}
+
+.tile-label {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.tile-value {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.tile-sub {
+  font-size: 0.8rem;
+}
+
+.empty {
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--critical);
+}
+
+.notice,
+.updated {
+  margin: 0;
+}
+
+.updated {
+  font-size: 0.875rem;
+}
+
+/* Status */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid currentColor;
+}
+
+.badge-good {
+  color: var(--good-text);
+}
+
+.badge-warning {
+  color: var(--text);
+  background: var(--warning);
+  border-color: var(--warning);
+}
+
+.badge-critical {
+  color: #ffffff;
+  background: var(--critical);
+  border-color: var(--critical);
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.source {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  /* Log paths have no spaces to break at. */
+  overflow-wrap: anywhere;
+}
+
+/* Charts */
+
+.chart figcaption p {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* Lines are drawn in a stretched 0-100 viewBox; labels stay HTML so they keep their size. */
+.plot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 180px auto;
+  column-gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.y-ticks {
+  position: relative;
+  min-width: 2rem;
+}
+
+.y-ticks .tick {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+}
+
+.x-ticks {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+}
+
+.tick {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A fixed viewBox scales its text: cap the growth, and scroll on phones rather than shrink. */
+.flow-wrap {
+  overflow-x: auto;
+}
+
+svg.flow {
+  display: block;
+  width: 100%;
+  min-width: 520px;
+  max-width: 800px;
+  height: auto;
+  margin-top: 0.75rem;
+}
+
+svg .grid,
+svg .axis,
+svg .line {
+  vector-effect: non-scaling-stroke;
+}
+
+svg .grid {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+
+svg .axis {
+  stroke: var(--axis);
+  stroke-width: 1;
+}
+
+svg .tick {
+  fill: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+svg .line {
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+svg .line {
+  fill: none;
+  pointer-events: none;
+}
+
+svg .hover {
+  fill: transparent;
+}
+
+svg .hover:hover {
+  fill: var(--grid);
+  fill-opacity: 0.5;
+}
+
+.bars {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.bar {
+  height: 16px;
+  background: var(--series-1);
+  min-width: 2px;
+  max-width: calc(100% - 3.5rem);
+  border-radius: 0 4px 4px 0;
+}
+
+.bar-value {
+  font-variant-numeric: tabular-nums;
+}
+
+svg.flow .edge path {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+svg.flow .edge:hover path {
+  opacity: 1;
+  stroke-width: 3;
+}
+
+svg.flow .node rect {
+  fill: var(--page);
+  stroke: var(--axis);
+}
+
+svg.flow .node-server rect {
+  stroke: var(--series-1);
+}
+
+svg.flow .node text {
+  fill: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tables */
+
+details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-top: 0.75rem;
+}
+
+details.card summary {
+  margin-top: 0;
+}
+
+.card:has(> table),
+details {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+}
+
+/* Request targets and user agents are long and attacker-chosen. */
+td.wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 12rem;
+  max-width: 28rem;
+}
+
+th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.config {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+}
+
+.config dt {
+  color: var(--text-muted);
+}
+
+.config dd {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+}
+
+/* Help: the command's README, in a popover */
+
+.help-button,
+.theme-button,
+.help-head button {
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.6rem;
+  cursor: pointer;
+}
+
+.help-button:hover,
+.theme-button:hover,
+.help-head button:hover {
+  border-color: var(--accent);
+}
+
+.help {
+  width: min(48rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 0;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.help::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.help-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.help-body {
+  padding: 0 1rem 1rem;
+  line-height: 1.5;
+}
+
+.help-body h1 {
+  font-size: 1.25rem;
+}
+
+.help-body h2 {
+  font-size: 1.05rem;
+  margin-top: 1.5rem;
+}
+
+.help-body h3 {
+  margin-top: 1.25rem;
+}
+
+.help-body pre,
+.help-body code {
+  font-family: ui-monospace, monospace;
+}
+
+.help-body pre {
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  background: var(--page);
+  border-radius: 4px;
+}
+
+.help-body a {
+  color: var(--accent);
+}
+
+/* Scrolls on its own when a column cannot shrink, instead of widening the view. */
+.help-body table {
+  display: block;
+  overflow-x: auto;
+}
+
+/* README tables hold prose, unlike the data tables. */
+.help-body th,
+.help-body td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+/* Breaks at word boundaries first; tables get <wbr> after underscores from help.py. */
+.help-body p code,
+.help-body li code {
+  overflow-wrap: anywhere;
+}
+
+/* Admin tab */
+
+.tabs .tab-admin {
+  margin-left: auto;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.card-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.admin-static > * + * {
+  margin-top: 1rem;
+}
+
+
+td.num {
+  text-align: right;
+}
+
+tfoot th,
+tfoot td {
+  border-bottom: 0;
+}
+
+meter {
+  width: 5rem;
+  vertical-align: middle;
+}
+
+.button,
+.import-form button,
+dialog button {
+  display: inline-block;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+
+.button:hover,
+.import-form button:hover,
+dialog button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.import-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.import-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.import-commands legend,
+.import-form .units legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.import-form label {
+  cursor: pointer;
+}
+
+.import-form .units {
+  align-items: center;
+}
+
+#import-count {
+  width: 4.5rem;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--page);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+}
+
+#import-count:invalid {
+  border-color: var(--critical);
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#import-progress {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+#import-progress h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+#import-confirm {
+  width: min(52rem, calc(100vw - 2rem));
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  overflow-x: auto;
+}
+
+#import-confirm::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.warnings {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.warnings li + li {
+  margin-top: 0.25rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* Source paths can be long: let them wrap rather than push the numbers out of view. */
+#import-confirm td.wrap,
+#import-progress td.wrap {
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}

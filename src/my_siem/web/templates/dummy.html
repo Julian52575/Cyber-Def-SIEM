@@ -1,0 +1,26 @@
+{% import "_charts.html" as ch %}
+<p class="notice">
+  <span class="badge badge-warning"><span aria-hidden="true">!</span> dummy data</span>
+  The <code>dummy</code> command generates these values; they are not real traffic.
+</p>
+<p class="muted updated">Updated {{ updated | clock }} · {{ window }}</p>
+
+{{ ch.tiles(tiles) }}
+
+<div class="grid">
+  {%- for c in line_charts %}
+  {{ ch.line_chart(c, "dummy-line-" ~ loop.index) }}
+  {%- endfor %}
+  {%- for b in bar_lists %}
+  {{ ch.bar_list(b) }}
+  {%- endfor %}
+</div>
+
+<details class="card" id="dummy-config">
+  <summary>Command configuration</summary>
+  <dl class="config">
+    {%- for k, v in config.items() %}
+    <div><dt>{{ k }}</dt><dd>{{ v | tojson }}</dd></div>
+    {%- endfor %}
+  </dl>
+</details>

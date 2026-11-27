@@ -1,6 +1,6 @@
 name: ci-sast
 
-# Static Application Security Testing with CodeQL (Python + workflows).
+# Static Application Security Testing with CodeQL (Python, the dashboard's JS + workflows).
 #
 #   guard            nothing runs on a draft or fork PR.
 #   codeql           scans, writes a summary, and fails on any error-severity
@@ -70,7 +70,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
-          languages: actions, python
+          languages: actions, python, javascript-typescript
           build-mode: none
           queries: security-extended
 

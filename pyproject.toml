@@ -4,14 +4,21 @@ version = "0.1.0"
 description = "Security Information and Event Management"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-	"scapy >= 2.8.0"
+	"fastapi>=0.165.0",
+	"jinja2>=3.1.6",
+	"markdown-it-py>=3.0.0",
+	"opentelemetry-sdk>=1.45.2",
+	"scapy >= 2.8.0",
+	"tzdata>=2026.6",
+	"uvicorn>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
 	"ruff>=0.17.6",
 	"pytest>=9.2.0",
-	"mypy>=v2.4.1"
+	"mypy>=v2.4.1",
+	"httpx>=0.29.0",
 ]
 
 [project.scripts]

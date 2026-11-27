@@ -1,0 +1,19 @@
+<div class="card">
+  <h3>Scheduled jobs</h3>
+  <p class="muted card-note">What each service runs on its own, and how often. Last runs as of {{ updated | clock }}; reload to update.</p>
+  <table>
+    <thead><tr><th>Service</th><th>Job</th><th>Frequency</th><th>Last run</th></tr></thead>
+    <tbody>
+      {%- for j in jobs %}
+      <tr>
+        <td>{{ j.service }}</td>
+        <td class="wrap">{{ j.name }}{% if j.state %} <span class="badge {{ state_badges[j.state] }}">{{ j.state }}</span>{% endif %}</td>
+        <td class="wrap">{{ j.frequency }}</td>
+        <td>{{ j.last }}</td>
+      </tr>
+      {%- else %}
+      <tr><td colspan="4" class="empty">No scheduled job.</td></tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</div>
