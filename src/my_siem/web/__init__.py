@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, PackageLoader
 from markupsafe import Markup
@@ -118,7 +118,8 @@ class Dashboard:
     def router(self) -> APIRouter:
         r = APIRouter(include_in_schema=False)
         first = self.sections[0].id
-        r.add_api_route("/", lambda: RedirectResponse(f"/ui/{first}"), methods=["GET"])
+        # Served in place, not redirected: a redirect behind a proxy can lose the port.
+        r.add_api_route("/", lambda: self.page(first), methods=["GET"])
         r.add_api_route("/ui/{section_id}", self.page, methods=["GET"])
         r.add_api_route("/ui/{section_id}/stream", self.stream, methods=["GET"])
         return r

@@ -45,13 +45,13 @@ def busy_state() -> SshState:
     return state
 
 
-def test_root_redirects_to_the_running_command() -> None:
+def test_root_serves_the_first_command_without_redirect() -> None:
     client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
 
     res = client.get("/", follow_redirects=False)
 
-    assert res.status_code == 307
-    assert res.headers["location"] == "/ui/ssh"
+    assert res.status_code == 200
+    assert 'data-stream="/ui/ssh/stream"' in res.text
 
 
 def test_ssh_page_shows_the_live_state() -> None:
@@ -90,7 +90,7 @@ def test_one_tab_per_running_command_in_the_given_order() -> None:
 
     page = client.get("/ui/dummy").text
 
-    assert client.get("/", follow_redirects=False).headers["location"] == "/ui/dummy"
+    assert 'data-stream="/ui/dummy/stream"' in client.get("/").text
     assert page.index('href="/ui/dummy"') < page.index('href="/ui/ssh"')
     assert 'data-stream="/ui/dummy/stream"' in page
     assert "Port scan" in page
