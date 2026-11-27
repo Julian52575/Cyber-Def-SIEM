@@ -29,7 +29,7 @@ check-lint:
     uv run ruff check src tests 
 
 # Type-check the source with mypy
-check-typecheck:
+check-typecheck: write-version
     uv run mypy src
 
 # Run the test suite
