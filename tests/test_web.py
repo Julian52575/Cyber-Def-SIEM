@@ -315,3 +315,17 @@ def test_asset_urls_change_with_their_content() -> None:
 
     assert f"static/live.js?v={version}" in page
     assert client.get(f"/static/style.css?v={version}").status_code == 200
+
+
+def test_page_is_dark_by_default_and_follows_the_theme_cookie() -> None:
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
+
+    assert '<html lang="en" data-theme="dark">' in client.get("/ui/ssh").text
+    assert 'id="theme-toggle"' in client.get("/").text
+
+    client.cookies.set("my_siem_theme", "light")
+    assert 'data-theme="light"' in client.get("/ui/ssh").text
+    assert 'data-theme="light"' in client.get("/").text
+
+    client.cookies.set("my_siem_theme", '"><script>')
+    assert 'data-theme="dark"' in client.get("/ui/ssh").text

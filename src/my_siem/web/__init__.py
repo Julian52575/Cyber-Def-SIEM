@@ -6,9 +6,9 @@ import time
 from collections import deque
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Cookie, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, PackageLoader
@@ -35,6 +35,10 @@ def _asset_version() -> str:
 MAX_SAMPLES = 120
 # Seconds between dashboard refreshes the reader can pick from.
 POLL_CHOICES = (1, 2, 5, 10, 15, 30, 60)
+THEMES = ("dark", "light")
+# Set by live.js; read here so the chosen theme renders without a flash of the other.
+THEME_COOKIE = "my_siem_theme"
+ThemeCookie = Annotated[str | None, Cookie(alias=THEME_COOKIE)]
 
 # Usernames in sshd logs are attacker-controlled: autoescape everything, run no inline script.
 CSP = (
@@ -102,12 +106,15 @@ class Dashboard:
         )
         return _env.get_template(section.template).render(**ctx, updated=time.time())
 
-    def page(self, section_id: str, root: str) -> HTMLResponse:
+    def page(
+        self, section_id: str, root: str, theme: str | None = None
+    ) -> HTMLResponse:
         """`root` leads from the page back to the app root, so the links survive a
         proxy that mounts the app under a prefix."""
         section = self._section(section_id)
         html = _env.get_template("base.html").render(
             root=root,
+            theme=theme if theme in THEMES else THEMES[0],
             commands=list(self._snapshots),
             sections=self.sections,
             section=section,
@@ -126,13 +133,16 @@ class Dashboard:
     def router(self) -> APIRouter:
         r = APIRouter(include_in_schema=False)
         first = self.sections[0].id
+
         # Served in place, not redirected: a redirect behind a proxy can lose the port.
-        r.add_api_route("/", lambda: self.page(first, root="./"), methods=["GET"])
-        r.add_api_route(
-            "/ui/{section_id}",
-            lambda section_id: self.page(section_id, "../"),
-            methods=["GET"],
-        )
+        def index(theme: ThemeCookie = None) -> HTMLResponse:
+            return self.page(first, "./", theme)
+
+        def section(section_id: str, theme: ThemeCookie = None) -> HTMLResponse:
+            return self.page(section_id, "../", theme)
+
+        r.add_api_route("/", index, methods=["GET"])
+        r.add_api_route("/ui/{section_id}", section, methods=["GET"])
         r.add_api_route(
             "/ui/{section_id}/fragment", self.fragment_response, methods=["GET"]
         )

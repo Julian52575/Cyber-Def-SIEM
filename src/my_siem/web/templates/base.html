@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{ theme }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,6 +21,8 @@
           {%- endfor %}
         </select>
       </label>
+      {#- Hidden until live.js runs: switching needs it. #}
+      <button type="button" id="theme-toggle" class="theme-button" hidden>Light mode</button>
       {%- if help %}
       {#- popovertarget opens it without JavaScript, so it works under the CSP and with scripts off. #}
       <button type="button" class="help-button" popovertarget="help" aria-haspopup="dialog">Help</button>

@@ -1,43 +1,6 @@
 :root {
-  color-scheme: light;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --page: #f9f9f9;
-  --surface: #ffffff;
-  --text: #191919;
-  --text-muted: #666666;
-  --grid: #e7e7e7;
-  --axis: #c2c2c2;
-  --border: rgba(11, 11, 11, 0.1);
-  --accent: #257de0;
-  --series-1: #257de0;
-  --series-2: #f47230;
-  --series-3: #00b894;
-  --good: #0aac23;
-  --good-text: #006c10;
-  --warning: #fbb315;
-  --critical: #dc3c3d;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --page: #0b0b0b;
-    --surface: #191919;
-    --text: #efefef;
-    --text-muted: #9c9c9c;
-    --grid: #303030;
-    --axis: #474747;
-    --border: rgba(255, 255, 255, 0.1);
-    --accent: #338ced;
-    --series-1: #338ced;
-    --series-2: #e76624;
-    --series-3: #00a888;
-    --good-text: #53c556;
-  }
-}
-
-:root[data-theme="dark"] {
   color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   --page: #0b0b0b;
   --surface: #191919;
   --text: #efefef;
@@ -49,7 +12,26 @@
   --series-1: #338ced;
   --series-2: #e76624;
   --series-3: #00a888;
+  --good: #0aac23;
   --good-text: #53c556;
+  --warning: #fbb315;
+  --critical: #dc3c3d;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f9f9f9;
+  --surface: #ffffff;
+  --text: #191919;
+  --text-muted: #666666;
+  --grid: #e7e7e7;
+  --axis: #c2c2c2;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #257de0;
+  --series-1: #257de0;
+  --series-2: #f47230;
+  --series-3: #00b894;
+  --good-text: #006c10;
 }
 
 body {
@@ -508,6 +490,7 @@ th {
 /* Help: the command's README, in a popover */
 
 .help-button,
+.theme-button,
 .help-head button {
   font: inherit;
   font-size: 0.875rem;
@@ -520,6 +503,7 @@ th {
 }
 
 .help-button:hover,
+.theme-button:hover,
 .help-head button:hover {
   border-color: var(--accent);
 }

@@ -64,3 +64,21 @@ if (panel) {
   status.textContent = "connecting…";
   refresh();
 }
+
+// A cookie, not localStorage, so the server renders the choice and nothing flashes.
+const themeToggle = document.getElementById("theme-toggle");
+
+function showTheme(theme) {
+  themeToggle.textContent = theme === "light" ? "Dark mode" : "Light mode";
+}
+
+if (themeToggle) {
+  showTheme(document.documentElement.dataset.theme);
+  themeToggle.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    document.cookie = `my_siem_theme=${next}; path=/; max-age=31536000; SameSite=Lax`;
+    showTheme(next);
+  });
+  themeToggle.hidden = false;
+}
