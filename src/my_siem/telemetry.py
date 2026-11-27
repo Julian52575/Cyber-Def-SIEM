@@ -5,7 +5,6 @@ import socket
 import threading
 import time
 from collections.abc import Mapping, Sequence
-from importlib.metadata import version
 from pathlib import Path
 from typing import IO
 
@@ -18,6 +17,8 @@ from opentelemetry.sdk._logs.export import (
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.util.types import AnyValue
+
+from my_siem.version import VERSION
 
 SERVICE_NAME = "my_siem"
 INFO = SeverityNumber.INFO
@@ -74,7 +75,7 @@ def make_provider(exporters: Sequence[LogRecordExporter]) -> LoggerProvider:
     resource = Resource.create(
         {
             "service.name": SERVICE_NAME,
-            "service.version": version(SERVICE_NAME),
+            "service.version": VERSION,
             "host.name": socket.gethostname(),
         }
     )
@@ -108,4 +109,4 @@ class EventLogger:
 
 
 def event_logger(provider: LoggerProvider, scope: str) -> EventLogger:
-    return EventLogger(provider.get_logger(scope, version(SERVICE_NAME)))
+    return EventLogger(provider.get_logger(scope, VERSION))
