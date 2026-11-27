@@ -138,7 +138,8 @@ class GeneralConfig:
     stdout: bool = False
     log: bool = True
     api: bool = False
-    api_host: str = "0.0.0.0"
+    # Loopback by default: the API exposes users and addresses.
+    api_host: str = "127.0.0.1"
     api_port: int = 8080
     # Names the browser may use to reach the API; `api_host` is always allowed too.
     api_allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")

@@ -47,7 +47,7 @@ by side, each with its own config and log file; if one crashes, my_siem stops.
 | `--no-log`    | Do not write events to log files (default: off)                 |
 | `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
 | `--api`       | Serve a live dashboard and the monitoring data over HTTP (see [API](#api)) |
-| `--api-host HOST` | Address the API listens on (default: `0.0.0.0`)           |
+| `--api-host HOST` | Address the API listens on (default: `127.0.0.1`)           |
 | `--api-port PORT` | Port the API listens on (default: `8080`)                   |
 
 General flags may go before or after the commands. Command-line flags override the config files.
@@ -76,7 +76,7 @@ Examples with every key at its default are in [`config/`](config/).
 | `stdout` | `false` | Also print events to stdout       |
 | `log`    | `true`  | Write events to the log file      |
 | `api`    | `false` | Serve the API (as `--api`)        |
-| `api_host` | `"0.0.0.0"` | Address the API listens on |
+| `api_host` | `"127.0.0.1"` | Address the API listens on |
 | `api_port` | `8080`  | Port the API listens on         |
 | `api_allowed_hosts` | `["localhost", "127.0.0.1", "::1"]` | Host names the API answers to, besides `api_host` (against DNS rebinding) |
 
