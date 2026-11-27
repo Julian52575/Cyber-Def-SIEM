@@ -262,7 +262,7 @@ jq 'select(.severity_text == "ERROR")' /etc/my_siem/logs/ssh/ssh.jsonl   # only 
 
 ### Project layout
 
-How the commands and the dashboard work inside, and how to add a command: [src/my_siem/README.md](src/my_siem/README.md).
+How the commands and the dashboard work inside, and how to add a command: [src/my_siem/README.md](src/my_siem/README.md). What each command reads, and how: [ssh](src/my_siem/ssh/README.md), [http](src/my_siem/http/README.md), [https](src/my_siem/https/README.md), [dummy](src/my_siem/dummy/README.md).
 
 ```
 src/my_siem/   the package (entry point: my_siem.main:main)

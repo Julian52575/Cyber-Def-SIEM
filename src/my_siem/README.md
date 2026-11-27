@@ -1,7 +1,9 @@
 # Commands and the dashboard
 
 How the commands (`ssh/`, `http/`, `https/`, `dummy/`) and the dashboard (`web/`) fit together. For usage
-and config keys, see the [main README](../../README.md).
+and config keys, see the [main README](../../README.md). What each command reads, and how,
+is in its own README: [`ssh`](ssh/README.md), [`http`](http/README.md),
+[`https`](https/README.md), [`dummy`](dummy/README.md).
 
 ## How commands run
 
@@ -97,9 +99,10 @@ method but `GET` and `HEAD`.
 1. Create `my_siem/<name>/`, starting from a copy of `dummy/command.py`: a config class
    with `from_json`, a thread-safe state with `snapshot()`, `add_arguments`,
    `apply_flags`, and a `run()` that blocks for as long as the command works.
-2. Register it in `COMMANDS` in `main.py`, and add an example `config/<name>/config.json`.
+2. Register it in `COMMANDS` in `main.py`.
 3. Give it a tab: write a `context(snapshot, samples)` function (plus `metrics()` for line
    charts over time) in `web/sections.py`, add a template in `web/templates/` that imports
    `_charts.html`, and register the `Section` in `SECTIONS` under the command's name.
    A test checks that every command has one.
-4. Test it in `tests/test_<name>.py` and `tests/test_web.py`, and document it in the main README.
+4. Test it in `tests/test_<name>.py` and `tests/test_web.py`. Document its flags and config
+   keys in the main README, and what it reads and how in `my_siem/<name>/README.md`.
