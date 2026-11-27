@@ -21,13 +21,27 @@
 | `"journald"` | journald (also `--journal`) |
 | a file path  | that file (also `--auth-log PATH`) |
 
-- **A file** is followed like `tail -F` (`follow_file`): it is opened, the read jumps to
-  the end, and new lines are read every 0.5 s. Lines already in the file are not read.
-  When the file's inode changes (logrotate), the new file is opened from the start.
+Both are read from a point in time, then followed (`file_events`, `journal_events`):
+
+- **The point** is where the last run stopped: the time of the last sshd event it read,
+  saved in `logs/ssh/rollup.json` with the counts (`mark`, in `monitor.py`). A first run
+  goes back 100 days, as far as the time filters reach. So history is filled in on the
+  first run, and the gap of any restart afterwards. The point and the counts are saved
+  together, so a crash makes both go back to the same moment and no event is counted twice.
+- **A file** is read from its rotated copies first, oldest first (`auth.log.4.gz` ...
+  `auth.log.1`, skipping copies last written before the point), then from the start of
+  the live file, then followed like `tail -F` (`follow_file`): new lines every 0.5 s,
+  and when the file's inode changes (logrotate), the new file is opened from the start.
 - **journald** is read by running
-  `journalctl --follow --lines=0 --output=short-iso _COMM=sshd _COMM=sshd-session`
-  (`follow_journal`). It prints only new entries, in the same syslog shape as auth.log,
-  so both sources go through the same parser.
+  `journalctl --follow --since=@<point> --output=json _COMM=sshd _COMM=sshd-session`.
+  JSON gives each entry's time to the microsecond and its PID, so only the message goes
+  through the parser.
+
+Every event keeps the time sshd logged it, not the time it was read: an old line lands
+in its own minute, hour and day, and alerts it triggers (`ssh_bruteforce`) are timed and
+windowed by the events' times too. A file line's time is its syslog stamp: ISO 8601 with
+its offset (rsyslog's default since Debian 12 and Ubuntu 23.10), or the traditional
+`Nov 26 14:50:00`, read in the host's time zone and the year that keeps it in the past.
 
 Reading either needs read access to the log: root, or the `adm` group for auth.log and
 `systemd-journal` for journald. If the source can't be read, the `sshd_log` source is

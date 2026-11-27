@@ -1,16 +1,18 @@
-"""Generate placeholder traffic and detections, nudged every `interval` seconds."""
+"""Generate placeholder traffic and detections, one logged tick every `interval` seconds."""
 
 import argparse
 import math
 import random
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
 from my_siem.clock import local
 from my_siem.config import Fields
-from my_siem.telemetry import INFO, EventLogger
+from my_siem.logs import LogManager, event_keys
+from my_siem.telemetry import INFO
 
 RULES = ("Port scan", "Brute force", "Malware beacon", "Data exfiltration")
 
@@ -20,7 +22,7 @@ class DummyConfig:
     """Settings of the `dummy` command, read from config/dummy/config.json."""
 
     interval: float = 5.0
-    # Same seed, same starting data across runs.
+    # Same seed, same made-up traffic across runs.
     seed: int = 42
 
     def __post_init__(self) -> None:
@@ -46,34 +48,27 @@ class DummyState:
         self._lock = threading.Lock()
         self._config = cfg.to_json()
         self._rand = random.Random(cfg.seed)
-        r = self._rand
-        self._allowed = [
-            round(120 + 80 * math.sin((h - 6) / 3.8) + r.random() * 30)
-            for h in range(24)
-        ]
-        self._blocked = [round(10 + r.random() * 25) for _ in range(24)]
-        self._rules = {
-            "Port scan": round(40 + r.random() * 60),
-            "Brute force": round(20 + r.random() * 40),
-            "Malware beacon": round(5 + r.random() * 20),
-            "Data exfiltration": round(r.random() * 10),
-        }
+        self._ticks = 0
 
-    def tick(self, hour: int) -> None:
+    def tick(self) -> dict[str, Any]:
+        """Make up one interval of traffic, as the attributes of its event."""
         with self._lock:
-            self._allowed[hour] += self._rand.randint(0, 6)
-            self._blocked[hour] += self._rand.randint(0, 2)
-            if self._rand.random() < 0.3:
-                self._rules[self._rand.choice(RULES)] += 1
+            self._ticks += 1
+            r = self._rand
+            # Busier by day than by night, like real traffic.
+            hour = local(time.time()).hour
+            busy = 1 + math.sin((hour - 6) / 3.8)
+            attributes: dict[str, Any] = {
+                "siem.dummy.allowed": round(r.randint(0, 6) * busy),
+                "siem.dummy.blocked": r.randint(0, 2),
+            }
+            if r.random() < 0.3:
+                attributes["siem.dummy.rule"] = r.choice(RULES)
+            return attributes
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            return {
-                "config": self._config,
-                "allowed": list(self._allowed),
-                "blocked": list(self._blocked),
-                "rules": dict(self._rules),
-            }
+            return {"config": self._config, "ticks": self._ticks}
 
 
 def new_state(cfg: DummyConfig) -> DummyState:
@@ -89,8 +84,19 @@ def apply_flags(cfg: DummyConfig, args: argparse.Namespace) -> DummyConfig:
     return cfg if args.interval is None else replace(cfg, interval=args.interval)
 
 
-def run(out: EventLogger, cfg: DummyConfig, state: DummyState) -> None:
-    out.emit(
+def count_keys(name: str, attributes: Mapping[str, Any]) -> dict[str, int]:
+    """A tick counts its allowed and blocked events, and the rule it triggered."""
+    keys = event_keys(name, attributes)
+    if name == "siem.dummy.tick":
+        keys["allowed"] = int(attributes.get("siem.dummy.allowed", 0))
+        keys["blocked"] = int(attributes.get("siem.dummy.blocked", 0))
+        if rule := attributes.get("siem.dummy.rule"):
+            keys[f"rule:{rule}"] = 1
+    return keys
+
+
+def run(logs: LogManager, cfg: DummyConfig, state: DummyState) -> None:
+    logs.out.emit(
         INFO,
         "siem.source.started",
         f"generating placeholder data every {cfg.interval:g}s",
@@ -98,4 +104,11 @@ def run(out: EventLogger, cfg: DummyConfig, state: DummyState) -> None:
     )
     while True:
         time.sleep(cfg.interval)
-        state.tick(local(time.time()).hour)
+        attributes = state.tick()
+        logs.out.emit(
+            INFO,
+            "siem.dummy.tick",
+            f"{attributes['siem.dummy.allowed']} allowed, "
+            f"{attributes['siem.dummy.blocked']} blocked",
+            attributes,
+        )

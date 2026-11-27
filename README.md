@@ -96,7 +96,8 @@ or `HEAD` gets `405`, on every path:
 ```sh
 sudo .venv/bin/my_siem --api
 xdg-open http://localhost:8080/   # dashboard
-curl localhost:8080/ssh           # JSON
+curl localhost:8080/ssh                      # JSON, last 60 minutes
+curl 'localhost:8080/ssh?unit=day&count=7'    # JSON, last 7 days
 ```
 
 | Endpoint                | Returns                                                         |
@@ -104,23 +105,37 @@ curl localhost:8080/ssh           # JSON
 | `GET /`                 | Redirects to the first running command's dashboard              |
 | `GET /ui/<command>`     | The command's dashboard tab                                     |
 | `GET /ui/<command>/fragment` | The tab's content alone, polled by the page every 5 s       |
-| `GET /<command>`        | The command's live state as JSON (below)                        |
+| `GET /<command>`        | The command's live state, and what it logged in a window, as JSON (below) |
 | `GET /healthz`          | `{"status": "ok", "commands": ["ssh", "dummy"]}`                |
 | `GET /docs`             | Interactive OpenAPI docs                                        |
 
-| Command | Dashboard tab and JSON state |
+Every page, fragment and `GET /<command>` takes a time window: `unit` (`minute`, `hour` or
+`day`) and `count` (1 to 60 minutes, 24 hours or 100 days; default: 60 minutes). It counts
+whole Paris buckets, the current one included: "3 hours" at 14:20 starts at 12:00, and
+"2 days" starts at yesterday's midnight. On the dashboard it is the **Time range** bar: pick
+a unit, drag the slider. The window is kept in the URL and the tab links, so a reload or a
+tab switch keeps it. Pages forgive a bad window (they clamp it); the JSON API answers `422`.
+
+| Command | Dashboard tab and JSON (`window`: from the logs; the rest: live) |
 | ------- | ---------------------------- |
-| `ssh`   | Effective config, source status, event counts, active connections, last 100 logins and alerts |
-| `http`  | Same base, plus responses by status class, matches per attack rule, last 100 requests |
-| `https` | Same base, plus TLS versions offered, last 100 connection openings (server name, version, ALPN) |
-| `dummy` | Config, allowed and blocked events per hour of the day, detections per rule |
+| `ssh`   | Window: login outcomes, failed logins, alerts and new connections per bucket, the last 100 logins and alerts. Live: config, source status, uptime, active connections |
+| `http`  | Window: requests, responses by status class, matches per attack rule, the last 100 requests and alerts. Live: as `ssh` |
+| `https` | Window: TLS versions offered, missing SNI, legacy TLS, the last 100 connection openings (server name, version, ALPN) and alerts. Live: as `ssh` |
+| `dummy` | Window: allowed and blocked events, detections per rule. Live: config |
+
+In the JSON, `window` holds `unit`, `count`, `since`, `totals` (the window's counts by key),
+`buckets` (each one's start and counts) and `events` (the newest 100 records of each kind,
+as logged, newest first). Counts come from `rollup.json` and records from the hourly log
+files (see [Configuration and logs](#configuration-and-logs)), so the window reaches back
+past restarts. With `--no-log` both live in memory, for the current run only.
 
 Only the running commands' endpoints exist (no `/ssh` under `my_siem dummy`). The dashboard
 works without JavaScript (it then shows the data as of the page load); with it,
 `static/live.js` re-fetches the fragment every 5 s and swaps it in. It polls rather than
 streams because proxies that only forward finished responses would hold a stream forever.
-Chart history is sampled by the
-server on every 5 s of the clock (:00, :05, ...) and kept for 10 minutes, so it survives reloads but not restarts.
+Active connections are not logged, only sampled: their chart stays live whatever the
+window, sampled by the server on every 5 s of the clock (:00, :05, ...) and kept for 10
+minutes, so it survives reloads but not restarts.
 
 The server listens on all interfaces by default. It exposes users and addresses, so use
 `--api-host 127.0.0.1` to keep it local. To reach it from another machine, add the name or

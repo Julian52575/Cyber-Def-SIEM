@@ -9,8 +9,10 @@ from typing import Any
 
 from scapy.packet import Packet
 
+from my_siem.clock import local
 from my_siem.config import Fields
 from my_siem.detect import RateDetector, rate_alert
+from my_siem.logs import LONGEST, LogManager
 from my_siem.net import (
     ConnEvent,
     ConnKind,
@@ -19,13 +21,7 @@ from my_siem.net import (
     ports_from_json,
     run_sniffer,
 )
-from my_siem.ssh.log import (
-    AuthEvent,
-    AuthKind,
-    follow_events,
-    follow_file,
-    follow_journal,
-)
+from my_siem.ssh.log import AuthEvent, AuthKind, file_events, journal_events
 from my_siem.ssh.state import SshState
 from my_siem.telemetry import ERROR, INFO, WARN, EventLogger
 
@@ -102,14 +98,15 @@ def resolve_auth_log(setting: str) -> Path | None:
     return Path(setting)
 
 
+# Where in the sshd log the last event came from, saved with the counts.
+SSHD_LOG = "sshd_log"
+
+
 def report_auth(
-    out: EventLogger,
-    state: SshState,
-    event: AuthEvent,
-    failures: RateDetector,
-    now: float,
+    out: EventLogger, state: SshState, event: AuthEvent, failures: RateDetector
 ) -> None:
-    state.auth(event, time.time())
+    """Timed by the event: an old line read at startup lands, and alerts, at its time."""
+    state.auth(event, event.at)
     failed = event.kind in (AuthKind.LOGIN_FAILURE, AuthKind.INVALID_USER)
     out.emit(
         WARN if failed else INFO,
@@ -123,10 +120,17 @@ def report_auth(
             "process.pid": event.pid,
             "siem.ssh.auth.method": event.method,
         },
+        event.at,
     )
-    if failed and failures.hit(event.ip, now):
+    if failed and failures.hit(event.ip, event.at):
         rate_alert(
-            out, state, "ssh_bruteforce", event.ip, failures, "failed ssh logins"
+            out,
+            state,
+            "ssh_bruteforce",
+            event.ip,
+            failures,
+            "failed ssh logins",
+            at=event.at,
         )
 
 
@@ -147,7 +151,13 @@ def report_conn(
         )
         if openings.hit(c.client_ip, event.at):
             rate_alert(
-                out, state, "ssh_conn_flood", c.client_ip, openings, "ssh connections"
+                out,
+                state,
+                "ssh_conn_flood",
+                c.client_ip,
+                openings,
+                "ssh connections",
+                at=event.at,
             )
         return
     attributes |= {
@@ -165,28 +175,35 @@ def report_conn(
     )
 
 
-def _auth_lines(
-    out: EventLogger, state: SshState, cfg: SshMonitorConfig
-) -> Iterator[str]:
+def _auth_events(
+    logs: LogManager, state: SshState, cfg: SshMonitorConfig
+) -> Iterator[AuthEvent]:
+    """sshd's events from where the last run stopped, else as far back as the
+    filters reach, then live."""
     path = resolve_auth_log(cfg.auth_log)
-    state.source("sshd_log", "running", str(path or JOURNALD))
-    out.emit(
+    since = logs.mark(SSHD_LOG)
+    if since is None:
+        since = float(LONGEST.since(time.time()))
+    where = str(path or JOURNALD)
+    state.source("sshd_log", "running", where)
+    logs.out.emit(
         INFO,
         "siem.source.started",
-        f"reading sshd logs from {path or JOURNALD}",
+        f"reading sshd logs from {where}, after {local(since).isoformat()}",
         {"siem.source": "sshd_log", "log.file.path": str(path) if path else None},
     )
-    return follow_journal() if path is None else follow_file(path)
+    return journal_events(since) if path is None else file_events(path, since)
 
 
-def _run_logs(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
+def _run_logs(logs: LogManager, state: SshState, cfg: SshMonitorConfig) -> None:
     failures = RateDetector(cfg.fail_threshold, cfg.window)
     try:
-        for event in follow_events(_auth_lines(out, state, cfg)):
-            report_auth(out, state, event, failures, time.monotonic())
+        for event in _auth_events(logs, state, cfg):
+            report_auth(logs.out, state, event, failures)
+            logs.set_mark(SSHD_LOG, event.at)
     except OSError as e:
         state.source("sshd_log", "failed", str(e))
-        out.emit(
+        logs.out.emit(
             ERROR,
             "siem.source.failed",
             f"cannot read sshd logs: {e}",
@@ -194,27 +211,27 @@ def _run_logs(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
         )
 
 
-def _run_sniffer(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> None:
+def _run_sniffer(logs: LogManager, state: SshState, cfg: SshMonitorConfig) -> None:
     tracker = ConnTracker(cfg.ports)
     openings = RateDetector(cfg.conn_threshold, cfg.window)
 
     def on_packet(pkt: Packet) -> None:
         event = tracker.handle(pkt, float(pkt.time))
         if event is not None:
-            report_conn(out, state, event, openings)
+            report_conn(logs.out, state, event, openings)
 
-    run_sniffer(out, state, "ssh", cfg.interface, cfg.ports, on_packet)
+    run_sniffer(logs.out, state, "ssh", cfg.interface, cfg.ports, on_packet)
 
 
-def run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
+def run(logs: LogManager, cfg: SshMonitorConfig, state: SshState) -> None:
     workers = []
     if cfg.read_auth_log:
         workers.append(
-            threading.Thread(target=_run_logs, args=(out, state, cfg), daemon=True)
+            threading.Thread(target=_run_logs, args=(logs, state, cfg), daemon=True)
         )
     if cfg.sniff_traffic:
         workers.append(
-            threading.Thread(target=_run_sniffer, args=(out, state, cfg), daemon=True)
+            threading.Thread(target=_run_sniffer, args=(logs, state, cfg), daemon=True)
         )
     for w in workers:
         w.start()

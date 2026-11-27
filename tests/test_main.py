@@ -11,9 +11,10 @@ from my_siem.clock import hour_start
 from my_siem.dummy.command import DummyConfig
 from my_siem.http.command import HttpConfig
 from my_siem.https.command import HttpsConfig
-from my_siem.logfiles import list_logs, log_name
+from my_siem.logs import LogManager
+from my_siem.logs.files import list_logs, log_name
 from my_siem.ssh.monitor import SshMonitorConfig
-from my_siem.telemetry import INFO, EventLogger
+from my_siem.telemetry import INFO
 
 
 @pytest.fixture
@@ -23,9 +24,9 @@ def ran_all(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
 
     for name in cli.COMMANDS:
 
-        def fake_run(out: EventLogger, cfg: Any, state: Any, name: str = name) -> None:
+        def fake_run(logs: LogManager, cfg: Any, state: Any, name: str = name) -> None:
             configs[name].append(cfg)
-            out.emit(INFO, "test.ran", "ran")
+            logs.out.emit(INFO, "test.ran", "ran")
 
         monkeypatch.setitem(
             cli.COMMANDS, name, replace(cli.COMMANDS[name], run=fake_run)
@@ -208,7 +209,7 @@ def test_bad_command_lines_are_rejected(
 def test_a_failing_command_stops_the_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def crash(out: EventLogger, cfg: Any, state: Any) -> None:
+    def crash(logs: LogManager, cfg: Any, state: Any) -> None:
         raise RuntimeError("boom")
 
     monkeypatch.setitem(cli.COMMANDS, "ssh", replace(cli.COMMANDS["ssh"], run=crash))

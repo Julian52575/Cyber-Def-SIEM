@@ -41,14 +41,21 @@ def raise_alert(
     ip: str,
     message: str,
     attributes: Mapping[str, AnyValue] | None = None,
+    at: float | None = None,
 ) -> None:
-    """Record alert `name` against `ip` and log it as `siem.alert.<name>`."""
-    state.alert(name, ip, message, time.time())
+    """Record alert `name` against `ip` and log it as `siem.alert.<name>`.
+
+    `at` is when the triggering event happened (default now), so an alert raised while
+    reading old logs lands at its time, not at the time it was read.
+    """
+    at = time.time() if at is None else at
+    state.alert(name, ip, message, at)
     out.emit(
         ERROR,
         f"siem.alert.{name}",
         message,
         {"client.address": ip, **(attributes or {})},
+        at,
     )
 
 
@@ -59,6 +66,7 @@ def rate_alert(
     ip: str,
     detector: RateDetector,
     what: str,
+    at: float | None = None,
 ) -> None:
     raise_alert(
         out,
@@ -70,4 +78,5 @@ def rate_alert(
             "siem.alert.threshold": detector.threshold,
             "siem.alert.window": detector.window,
         },
+        at,
     )

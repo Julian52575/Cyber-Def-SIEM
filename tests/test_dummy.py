@@ -5,37 +5,36 @@ import pytest
 
 from my_siem.config import ConfigError, load_config
 from my_siem.dummy import add
-from my_siem.dummy.command import DummyConfig, DummyState
+from my_siem.dummy.command import DummyConfig, DummyState, count_keys
 
 
 def test_add() -> None:
     assert add(2, 3) == 5
 
 
-def test_same_seed_same_starting_data() -> None:
-    a = DummyState(DummyConfig()).snapshot()
-    b = DummyState(DummyConfig()).snapshot()
-    c = DummyState(DummyConfig(seed=7)).snapshot()
-
-    assert a == b
-    assert a["allowed"] != c["allowed"]
-    assert len(a["allowed"]) == len(a["blocked"]) == 24
+def ticks(seed: int, n: int = 20) -> list[dict[str, object]]:
+    state = DummyState(DummyConfig(seed=seed))
+    return [state.tick() for _ in range(n)]
 
 
-def test_tick_only_grows_the_given_hour() -> None:
-    state = DummyState(DummyConfig())
-    before = state.snapshot()
+def test_same_seed_same_made_up_traffic() -> None:
+    assert ticks(42) == ticks(42)
+    assert ticks(42) != ticks(7)
 
-    for _ in range(20):
-        state.tick(hour=3)
-    after = state.snapshot()
 
-    assert after["allowed"][3] > before["allowed"][3]
-    others = [h for h in range(24) if h != 3]
-    assert [after["allowed"][h] for h in others] == [
-        before["allowed"][h] for h in others
-    ]
-    assert sum(after["rules"].values()) >= sum(before["rules"].values())
+def test_a_tick_counts_its_traffic_and_rule() -> None:
+    attributes = {
+        "siem.dummy.allowed": 4,
+        "siem.dummy.blocked": 1,
+        "siem.dummy.rule": "Port scan",
+    }
+    assert count_keys("siem.dummy.tick", attributes) == {
+        "siem.dummy.tick": 1,
+        "allowed": 4,
+        "blocked": 1,
+        "rule:Port scan": 1,
+    }
+    assert count_keys("siem.source.started", {}) == {"siem.source.started": 1}
 
 
 def test_config_file_and_validation(tmp_path: Path) -> None:

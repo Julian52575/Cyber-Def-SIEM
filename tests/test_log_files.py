@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from my_siem.clock import hour_start
-from my_siem.logfiles import (
+from my_siem.logs.files import (
     DAY,
     HOUR,
     MB,

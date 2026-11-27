@@ -10,9 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
 
-from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry.sdk._logs.export import LogRecordExporter
-
 from my_siem.api import ApiServer, create_app
 from my_siem.clock import local
 from my_siem.config import (
@@ -28,19 +25,11 @@ from my_siem.config import (
 from my_siem.dummy import command as dummy
 from my_siem.http import command as http
 from my_siem.https import command as https
-from my_siem.logfiles import HourlyLogExporter, Retention
-from my_siem.rollup import Rollup, RollupExporter
+from my_siem.logs import CountKeys, LogManager, Retention, event_keys
 from my_siem.ssh import cli as ssh_cli
 from my_siem.ssh.monitor import SshMonitorConfig, new_state
 from my_siem.ssh.monitor import run as run_ssh
-from my_siem.telemetry import (
-    INFO,
-    WARN,
-    EventLogger,
-    JsonLinesExporter,
-    event_logger,
-    make_provider,
-)
+from my_siem.telemetry import INFO, WARN, JsonLinesExporter
 from my_siem.version import VERSION
 
 
@@ -59,7 +48,9 @@ class Command[C, S: LiveState]:
     # Command-line flags win over the config file.
     apply_flags: Callable[[C, argparse.Namespace], C]
     new_state: Callable[[C], S]
-    run: Callable[[EventLogger, C, S], None]
+    run: Callable[[LogManager, C, S], None]
+    # What each event adds to the counts the time filters read.
+    count_keys: CountKeys = event_keys
 
 
 COMMANDS: dict[str, Command[Any, Any]] = {
@@ -80,6 +71,7 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         apply_flags=http.apply_flags,
         new_state=http.new_state,
         run=http.run,
+        count_keys=http.count_keys,
     ),
     "https": Command(
         help="track TLS handshakes (server name, version) on the wire",
@@ -89,6 +81,7 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         apply_flags=https.apply_flags,
         new_state=https.new_state,
         run=https.run,
+        count_keys=https.count_keys,
     ),
     "dummy": Command(
         help="generate placeholder data (a template for new commands)",
@@ -98,6 +91,7 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         apply_flags=dummy.apply_flags,
         new_state=dummy.new_state,
         run=dummy.run,
+        count_keys=dummy.count_keys,
     ),
 }
 
@@ -235,24 +229,20 @@ class Running:
     cfg: Any
     state: Any
     warnings: list[ConfigWarning]
-    rollup: Rollup | None = None
-    provider: LoggerProvider | None = None
-    out: EventLogger | None = None
-    log_file: Path | None = None
-    resumed: bool = False
+    logs: LogManager | None = None
 
 
-def _announce(r: Running, out: EventLogger, warnings: list[ConfigWarning]) -> None:
-    if r.log_file is not None:
-        verb = "appending to existing log" if r.resumed else "writing log to"
-        out.emit(
+def _announce(logs: LogManager, warnings: list[ConfigWarning]) -> None:
+    if logs.log_file is not None:
+        verb = "appending to existing log" if logs.resumed else "writing log to"
+        logs.out.emit(
             INFO,
             "siem.log.opened",
-            f"{verb} {r.log_file}",
-            {"log.file.path": str(r.log_file), "siem.log.resumed": r.resumed},
+            f"{verb} {logs.log_file}",
+            {"log.file.path": str(logs.log_file), "siem.log.resumed": logs.resumed},
         )
     for w in warnings:
-        out.emit(WARN, w.event_name, w.message, {"siem.config.path": str(w.path)})
+        logs.out.emit(WARN, w.event_name, w.message, {"siem.config.path": str(w.path)})
 
 
 def _run_all(running: list[Running]) -> None:
@@ -260,9 +250,9 @@ def _run_all(running: list[Running]) -> None:
     done: queue.Queue[BaseException | None] = queue.Queue()
 
     def target(r: Running) -> None:
-        assert r.out is not None
+        assert r.logs is not None
         try:
-            r.command.run(r.out, r.cfg, r.state)
+            r.command.run(r.logs, r.cfg, r.state)
             done.put(None)
         except BaseException as e:  # noqa: BLE001 -- re-raised in the main thread
             done.put(e)
@@ -335,47 +325,46 @@ def main(argv: list[str] | None = None) -> None:
     for w in general_warnings + [w for r in running for w in r.warnings]:
         print(f"my_siem: warning: {w.message}", file=sys.stderr)
 
-    api = None
-    if args.api or general.api:
-        host = args.api_host or general.api_host
-        port = general.api_port if args.api_port is None else args.api_port
-        hosts = [*general.api_allowed_hosts, host]
-        app = create_app({r.name: r.state.snapshot for r in running}, hosts)
-        try:
-            api = ApiServer(app, host, port)
-        except OSError as e:
-            _fail(f"cannot serve the API on {host}:{port} ({e})")
-
     # Shared, and locked inside, so concurrent commands never interleave a line.
     stdout = JsonLinesExporter(sys.stdout) if to_stdout else None
     retention = Retention(general.log_max_age_days, general.log_max_size_mb)
+    api = None
     try:
         for r in running:
-            exporters: list[LogRecordExporter] = [] if stdout is None else [stdout]
-            if to_file:
-                try:
-                    files = HourlyLogExporter(layout.log_dir(r.name), r.name, retention)
-                except OSError as e:
-                    _fail(f"cannot open log file ({e}); try --path or run as root")
-                r.log_file, r.resumed = files.path, files.resumed
-                exporters.insert(0, files)
-            r.rollup = Rollup(layout.rollup_file(r.name) if to_file else None)
             try:
-                r.rollup.load()
-            except (OSError, ValueError) as e:
-                # Only past counts are lost; better than not monitoring.
-                print(f"my_siem: warning: starting counts afresh: {e}", file=sys.stderr)
-            exporters.append(RollupExporter(r.rollup))
-            r.provider = make_provider(exporters)
-            r.out = event_logger(r.provider, f"my_siem.{r.name}")
-            _announce(r, r.out, general_warnings + r.warnings)
+                r.logs = LogManager(
+                    r.name,
+                    layout.log_dir(r.name) if to_file else None,
+                    retention,
+                    r.command.count_keys,
+                    stdout,
+                )
+            except OSError as e:
+                _fail(f"cannot open log file ({e}); try --path or run as root")
 
+        if args.api or general.api:
+            host = args.api_host or general.api_host
+            port = general.api_port if args.api_port is None else args.api_port
+            hosts = [*general.api_allowed_hosts, host]
+            app = create_app(
+                {r.name: r.state.snapshot for r in running},
+                hosts,
+                logs={r.name: r.logs for r in running if r.logs is not None},
+            )
+            try:
+                api = ApiServer(app, host, port)
+            except OSError as e:
+                _fail(f"cannot serve the API on {host}:{port} ({e})")
+
+        for r in running:
+            assert r.logs is not None
+            _announce(r.logs, general_warnings + r.warnings)
         if api is not None:
             api.start()
             routes = ", ".join(f"{api.url}/{r.name}" for r in running)
             for r in running:
-                assert r.out is not None
-                r.out.emit(
+                assert r.logs is not None
+                r.logs.out.emit(
                     INFO,
                     "siem.api.started",
                     f"serving the dashboard at {api.url}/ and the data at {routes}",
@@ -383,8 +372,8 @@ def main(argv: list[str] | None = None) -> None:
                 )
         started_at = local(time.time()).isoformat(timespec="seconds")
         for r in running:
-            assert r.out is not None
-            r.out.emit(
+            assert r.logs is not None
+            r.logs.out.emit(
                 INFO,
                 "siem.started",
                 f"started watching at {started_at}",
@@ -397,15 +386,14 @@ def main(argv: list[str] | None = None) -> None:
             api.stop()
         stopped_at = local(time.time()).isoformat(timespec="seconds")
         for r in running:
-            if r.out is not None:
-                r.out.emit(
+            if r.logs is not None:
+                r.logs.out.emit(
                     INFO,
                     "siem.stopped",
                     f"shut down at {stopped_at}",
                     {"siem.stopped_at": stopped_at},
                 )
-            if r.provider is not None:
-                r.provider.shutdown()
+                r.logs.close()
         print(f"my_siem: shut down at {stopped_at}", file=sys.stderr)
 
 

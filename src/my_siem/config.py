@@ -28,9 +28,6 @@ class Layout:
     def log_dir(self, command: str) -> Path:
         return self.root / "logs" / command
 
-    def rollup_file(self, command: str) -> Path:
-        return self.log_dir(command) / "rollup.json"
-
 
 @dataclass(frozen=True)
 class ConfigWarning:

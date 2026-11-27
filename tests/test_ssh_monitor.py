@@ -1,5 +1,9 @@
 import io
 import json
+import time
+from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 from opentelemetry._logs import SeverityNumber
@@ -7,9 +11,16 @@ from opentelemetry.sdk._logs import ReadableLogRecord
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
 from my_siem.detect import RateDetector
+from my_siem.logs import LogManager
 from my_siem.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.log import AuthEvent, AuthKind
-from my_siem.ssh.monitor import report_auth, report_conn
+from my_siem.ssh.monitor import (
+    SSHD_LOG,
+    SshMonitorConfig,
+    _auth_events,
+    report_auth,
+    report_conn,
+)
 from my_siem.ssh.state import SshState
 from my_siem.telemetry import JsonLinesExporter, event_logger, make_provider
 
@@ -31,7 +42,7 @@ def test_failed_login_is_a_warn_record_with_semconv_attributes(
         AuthKind.LOGIN_FAILURE, "root", "203.0.113.9", 4242, 90, "password"
     )
 
-    report_auth(out, SshState({}), event, RateDetector(5, 60), now=0)
+    report_auth(out, SshState({}), event, RateDetector(5, 60))
 
     [rec] = records(exporter)
     assert rec.log_record.event_name == "siem.ssh.login_failure"
@@ -54,10 +65,11 @@ def test_repeated_failures_raise_an_error_alert(
     event = AuthEvent(AuthKind.INVALID_USER, "admin", "203.0.113.9", 1, 7)
 
     for t in (0, 1):
-        report_auth(out, SshState({}), event, failures, now=t)
+        report_auth(out, SshState({}), replace(event, at=t), failures)
 
     alert = records(exporter)[-1].log_record
     assert alert.event_name == "siem.alert.ssh_bruteforce"
+    assert alert.timestamp == 1 * 10**9  # at the failure that tipped it, not when read
     assert alert.severity_number is SeverityNumber.ERROR
     assert (alert.attributes or {})["client.address"] == "203.0.113.9"
 
@@ -93,8 +105,8 @@ def test_console_output_is_one_json_record_per_line() -> None:
         AuthKind.LOGIN_SUCCESS, "alice", "10.0.0.5", 5000, 50, "publickey"
     )
 
-    report_auth(out, SshState({}), event, RateDetector(5, 60), now=0)
-    report_auth(out, SshState({}), event, RateDetector(5, 60), now=0)
+    report_auth(out, SshState({}), event, RateDetector(5, 60))
+    report_auth(out, SshState({}), event, RateDetector(5, 60))
 
     lines = buf.getvalue().splitlines()
     assert len(lines) == 2
@@ -102,3 +114,22 @@ def test_console_output_is_one_json_record_per_line() -> None:
     assert rec["event_name"] == "siem.ssh.login_success"
     assert rec["severity_text"] == "INFO"
     assert rec["attributes"]["user.name"] == "alice"
+
+
+def stamped(at: float, user: str) -> str:
+    stamp = datetime.fromtimestamp(at).astimezone().isoformat()
+    return f"{stamp} host sshd[1]: Invalid user {user} from 1.2.3.4 port 5\n"
+
+
+def test_sshd_history_is_read_from_the_saved_mark(tmp_path: Path) -> None:
+    now = time.time()
+    log = tmp_path / "auth.log"
+    log.write_text(stamped(now - 7200, "before") + stamped(now - 3600, "after"))
+    cfg = SshMonitorConfig(auth_log=str(log), sniff_traffic=False)
+
+    fresh = LogManager("ssh", None)
+    assert next(_auth_events(fresh, SshState({}), cfg)).user == "before"
+
+    resumed = LogManager("ssh", None)
+    resumed.set_mark(SSHD_LOG, now - 7200)
+    assert next(_auth_events(resumed, SshState({}), cfg)).user == "after"

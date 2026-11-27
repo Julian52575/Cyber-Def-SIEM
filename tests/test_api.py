@@ -12,12 +12,13 @@ from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 from my_siem import main as cli
 from my_siem.api import ApiServer, create_app
 from my_siem.detect import RateDetector
-from my_siem.logfiles import list_logs
+from my_siem.logs import LogManager
+from my_siem.logs.files import list_logs
 from my_siem.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.log import AuthEvent, AuthKind
 from my_siem.ssh.monitor import SshMonitorConfig, new_state, report_auth, report_conn
 from my_siem.ssh.state import SshState
-from my_siem.telemetry import EventLogger, event_logger, make_provider
+from my_siem.telemetry import event_logger, make_provider
 
 HOSTS = ["testserver"]
 
@@ -28,7 +29,7 @@ def test_ssh_endpoint_reports_logins_connections_and_alerts() -> None:
     failures = RateDetector(2, 60)
     bad = AuthEvent(AuthKind.LOGIN_FAILURE, "root", "203.0.113.9", 4242, 90, "password")
     for t in (0, 1):
-        report_auth(out, state, bad, failures, now=t)
+        report_auth(out, state, replace(bad, at=t), failures)
     kept = Connection("10.0.0.5", 50122, "10.0.0.1", 22, started=100.0)
     gone = Connection("10.0.0.6", 50123, "10.0.0.1", 22, started=100.0)
     openings = RateDetector(99, 60)
@@ -96,7 +97,7 @@ def test_api_flag_serves_the_running_command(
     bodies: list[dict[str, object]] = []
     stop = threading.Event()
 
-    def fake_run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
+    def fake_run(logs: LogManager, cfg: SshMonitorConfig, state: SshState) -> None:
         [log] = list_logs(tmp_path / "logs" / "ssh", "ssh")
         started = next(
             r

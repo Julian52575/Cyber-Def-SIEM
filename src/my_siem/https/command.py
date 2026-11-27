@@ -6,6 +6,7 @@ the highest TLS version and the protocols (ALPN) the client offers.
 
 import argparse
 from collections import Counter, deque
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -16,6 +17,7 @@ from my_siem.config import Fields
 from my_siem.detect import RateDetector, raise_alert, rate_alert
 from my_siem.https.tls import MAX_PENDING, ClientHello, HelloAssembler, Opening
 from my_siem.live import RECENT, ConnState, iso
+from my_siem.logs import LogManager, event_keys
 from my_siem.net import (
     Connection,
     ConnKind,
@@ -131,6 +133,7 @@ class HttpsWatcher:
                         c.client_ip,
                         self.openings,
                         "https connections",
+                        at=now,
                     )
             else:
                 self.hellos.forget(c.key)
@@ -184,6 +187,7 @@ class HttpsWatcher:
                 c.client_ip,
                 f"{c.client_ip} offered at most {hello.version_name}",
                 {"tls.protocol.version": hello.version_name.split()[-1]},
+                at=now,
             )
 
     def _first_legacy(self, ip: str, now: float) -> bool:
@@ -220,7 +224,21 @@ def apply_flags(cfg: HttpsConfig, args: argparse.Namespace) -> HttpsConfig:
     )
 
 
-def run(out: EventLogger, cfg: HttpsConfig, state: HttpsState) -> None:
+def count_keys(name: str, attributes: Mapping[str, Any]) -> dict[str, int]:
+    """Besides the event name: the TLS version offered, a missing SNI, legacy TLS."""
+    keys = event_keys(name, attributes)
+    if name == "siem.https.client_hello":
+        proto = str(attributes.get("tls.protocol.name", "tls")).upper()
+        keys[f"tls:{proto} {attributes.get('tls.protocol.version')}"] = 1
+        if not attributes.get("tls.server_name"):
+            keys["no_sni"] = 1
+        if attributes.get("siem.https.legacy_tls"):
+            keys["legacy_tls"] = 1
+    return keys
+
+
+def run(logs: LogManager, cfg: HttpsConfig, state: HttpsState) -> None:
+    out = logs.out
     watcher = HttpsWatcher(out, state, cfg)
     run_sniffer(
         out,

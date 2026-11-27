@@ -16,13 +16,25 @@ function schedule() {
   timer = setTimeout(refresh, delay);
 }
 
+// The time window, as the query of every fragment fetch and tab link.
+const windowForm = document.getElementById("window");
+const windowCount = document.getElementById("window-count");
+const windowLabel = document.getElementById("window-label");
+
+function windowQuery() {
+  return windowForm ? new URLSearchParams(new FormData(windowForm)).toString() : "";
+}
+
 async function refresh() {
   inFlight = true;
+  // Dropped if the window changes meanwhile: an older answer must not win.
+  const query = windowQuery();
   try {
-    const res = await fetch(panel.dataset.fragment, { cache: "no-store" });
+    const res = await fetch(`${panel.dataset.fragment}?${query}`, { cache: "no-store" });
     // A proxy whose session expired may redirect to its login page; never show that.
     if (!res.ok || res.redirected) throw new Error(`HTTP ${res.status}`);
     const html = await res.text();
+    if (query !== windowQuery()) return;
     // A swap would otherwise fold every <details> the reader opened.
     const open = [...panel.querySelectorAll("details[open][id]")].map((d) => d.id);
     // Rendered by the server with autoescaping on; see CSP in my_siem/web/__init__.py.
@@ -31,8 +43,9 @@ async function refresh() {
     status.textContent = "live";
   } catch {
     status.textContent = "disconnected, retrying…";
+  } finally {
+    inFlight = false;
   }
-  inFlight = false;
   // Scheduled after each answer, so a slow server never gets overlapping requests.
   schedule();
 }
@@ -44,6 +57,44 @@ function savedSeconds() {
   } catch {
     return null;
   }
+}
+
+function windowUnit() {
+  return windowForm.querySelector("input[name=unit]:checked");
+}
+
+function showWindow() {
+  const n = Number(windowCount.value);
+  windowLabel.textContent = `Last ${n} ${windowUnit().value}${n > 1 ? "s" : ""}`;
+}
+
+// The window lives in the URL, so a reload, a bookmark or a tab switch keeps it.
+function applyWindow() {
+  const query = windowQuery();
+  history.replaceState(null, "", `?${query}`);
+  for (const tab of document.querySelectorAll(".tabs a")) {
+    tab.search = query;
+  }
+  clearTimeout(timer);
+  refresh();
+}
+
+if (panel && windowForm) {
+  windowForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    applyWindow();
+  });
+  for (const radio of windowForm.querySelectorAll("input[name=unit]")) {
+    radio.addEventListener("change", () => {
+      windowCount.max = radio.dataset.max;
+      windowCount.value = Math.min(Number(windowCount.value), Number(radio.dataset.max));
+      showWindow();
+      applyWindow();
+    });
+  }
+  // The label follows the thumb; the data waits for it to be let go.
+  windowCount.addEventListener("input", showWindow);
+  windowCount.addEventListener("change", applyWindow);
 }
 
 if (panel) {

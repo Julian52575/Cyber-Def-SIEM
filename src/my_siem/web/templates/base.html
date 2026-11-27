@@ -32,9 +32,23 @@
   <main>
     <nav class="tabs" aria-label="Sections">
       {%- for s in sections %}
-      <a href="{{ root }}ui/{{ s.id }}"{% if s.id == section.id %} aria-current="page"{% endif %}>{{ s.title }}</a>
+      <a href="{{ root }}ui/{{ s.id }}?{{ query }}"{% if s.id == section.id %} aria-current="page"{% endif %}>{{ s.title }}</a>
       {%- endfor %}
     </nav>
+    {#- A plain GET form: without JavaScript, "Apply" reloads the page with the window. #}
+    <form id="window" class="card window" method="get" action="">
+      <fieldset class="units">
+        <legend>Time range</legend>
+        {%- for u, label, max in units %}
+        <label><input type="radio" name="unit" value="{{ u }}" data-max="{{ max }}"{% if u == window.unit %} checked{% endif %}> {{ label }}</label>
+        {%- endfor %}
+      </fieldset>
+      <label class="window-count">
+        <input type="range" id="window-count" name="count" min="1" max="{{ window.max }}" value="{{ window.count }}">
+        <output id="window-label" for="window-count">{{ window.label() }}</output>
+      </label>
+      <noscript><button type="submit">Apply</button></noscript>
+    </form>
     <section id="panel" data-fragment="{{ root }}ui/{{ section.id }}/fragment" data-every="{{ every_ms }}">
       {{ fragment }}
     </section>

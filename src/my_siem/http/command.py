@@ -2,6 +2,7 @@
 
 import argparse
 from collections import Counter, deque
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -12,6 +13,7 @@ from my_siem.config import Fields
 from my_siem.detect import RateDetector, raise_alert, rate_alert
 from my_siem.http.wire import HttpRequest, match_rules, parse_request, parse_response
 from my_siem.live import RECENT, ConnState, iso
+from my_siem.logs import LogManager, event_keys
 from my_siem.net import ConnTracker, ip_of, parse_ports, ports_from_json, run_sniffer
 from my_siem.telemetry import INFO, WARN, EventLogger
 
@@ -176,6 +178,7 @@ class HttpWatcher:
                 client[0],
                 f"{client[0]} sent {req.method} {req.target} ({', '.join(rules)})",
                 {"siem.http.rules": rules, "url.path": req.path},
+                at=now,
             )
         if self.requests.hit(client[0], now):
             rate_alert(
@@ -185,6 +188,7 @@ class HttpWatcher:
                 client[0],
                 self.requests,
                 "http requests",
+                at=now,
             )
 
     def report_response(
@@ -211,6 +215,7 @@ class HttpWatcher:
                 client[0],
                 self.errors,
                 "requests answered with 4xx",
+                at=now,
             )
 
 
@@ -250,7 +255,24 @@ def apply_flags(cfg: HttpConfig, args: argparse.Namespace) -> HttpConfig:
     )
 
 
-def run(out: EventLogger, cfg: HttpConfig, state: HttpState) -> None:
+def count_keys(name: str, attributes: Mapping[str, Any]) -> dict[str, int]:
+    """Besides the event name: suspicious requests, each rule they match, status classes."""
+    keys = event_keys(name, attributes)
+    if name == "siem.http.request":
+        rules = attributes.get("siem.http.rules") or ()
+        if rules:
+            keys["suspicious"] = 1
+        for rule in rules:
+            keys[f"rule:{rule}"] = 1
+    elif name == "siem.http.response":
+        status = attributes.get("http.response.status_code")
+        if isinstance(status, int):
+            keys[f"status:{status_class(status)}"] = 1
+    return keys
+
+
+def run(logs: LogManager, cfg: HttpConfig, state: HttpState) -> None:
+    out = logs.out
     watcher = HttpWatcher(out, state, cfg)
     run_sniffer(
         out,

@@ -3,16 +3,21 @@
 import asyncio
 import socket
 import threading
+import time
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import uvicorn
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
+from my_siem.live import iso
+from my_siem.logs import DEFAULT_WINDOW, LogManager, Window
 from my_siem.web import Dashboard, static_files
+from my_siem.web.sections import SECTIONS
 
 type Snapshot = Callable[[], dict[str, Any]]
 
@@ -29,9 +34,13 @@ def create_app(
     snapshots: Mapping[str, Snapshot],
     allowed_hosts: Sequence[str],
     every: float = SAMPLE_EVERY,
+    logs: Mapping[str, LogManager] | None = None,
 ) -> FastAPI:
-    """`snapshots` gives the live state of each running command, by name."""
-    dashboard = Dashboard(snapshots, every)
+    """`snapshots` gives the live state of each running command, by name, and `logs`
+    what they logged (default: empty, in memory)."""
+    if logs is None:
+        logs = {name: LogManager(name, None) for name in snapshots}
+    dashboard = Dashboard(snapshots, logs, every)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -68,16 +77,57 @@ def create_app(
     def healthz() -> dict[str, Any]:
         return {"status": "ok", "commands": list(snapshots)}
 
-    for name, snapshot in snapshots.items():
+    for name in snapshots:
         app.add_api_route(
             f"/{name}",
-            snapshot,
+            _state_route(name, snapshots[name], logs[name]),
             methods=["GET"],
-            summary=f"Live state of the `{name}` command",
+            summary=f"State of the `{name}` command, and what it logged in a window",
         )
     app.include_router(dashboard.router())
     app.mount("/static", static_files(), name="static")
     return app
+
+
+def _state_route(
+    name: str, snapshot: Snapshot, logs: LogManager
+) -> Callable[..., dict[str, Any]]:
+    kinds = SECTIONS[name].kinds
+
+    def state(
+        unit: Annotated[
+            Literal["minute", "hour", "day"], Query(description="Bucket size")
+        ] = DEFAULT_WINDOW.unit,  # type: ignore[assignment]
+        count: Annotated[
+            int, Query(ge=1, description="Buckets, the current one included")
+        ] = DEFAULT_WINDOW.count,
+    ) -> dict[str, Any]:
+        """The live state, and under `window` the counts per bucket and the newest
+        records of each kind, from the logs."""
+        try:
+            window = Window(unit, count)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        buckets = logs.counts(window)
+        totals: Counter[str] = Counter()
+        for b in buckets:
+            totals.update(b.counts)
+        return {
+            **snapshot(),
+            "window": {
+                **window.to_json(),
+                "since": iso(window.since(time.time())),
+                "totals": dict(totals),
+                "buckets": [
+                    {"start": iso(b.start), "counts": b.counts} for b in buckets
+                ],
+                "events": {
+                    k: logs.recent(prefixes, window) for k, prefixes in kinds.items()
+                },
+            },
+        }
+
+    return state
 
 
 class ApiServer:

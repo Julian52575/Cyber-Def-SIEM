@@ -7,16 +7,19 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, PackageLoader
 from markupsafe import Markup
 
+from my_siem.logs import DEFAULT_WINDOW, LogManager, Window
+from my_siem.logs.window import TIERS
 from my_siem.version import VERSION
 from my_siem.web.help import command_help
-from my_siem.web.sections import SECTIONS, Metrics, Section, fmt_clock
+from my_siem.web.sections import SECTIONS, Metrics, Section, View, fmt_clock
 
 type Snapshot = Callable[[], dict[str, Any]]
 
@@ -76,12 +79,33 @@ class History:
             self.record(round(time.time() / every) * every)
 
 
+UNIT_LABELS = {"minute": "Minutes", "hour": "Hours", "day": "Days"}
+UnitQuery = Annotated[str | None, Query()]
+CountQuery = Annotated[int | None, Query()]
+
+
+def ui_window(unit: str | None, count: int | None) -> Window:
+    """The window a page asks for, forgiving: a bad unit or count falls back or clamps."""
+    if unit not in TIERS:
+        return (
+            DEFAULT_WINDOW if count is None else ui_window(DEFAULT_WINDOW.unit, count)
+        )
+    keep = TIERS[unit].keep
+    return Window(unit, keep if count is None else min(max(count, 1), keep))
+
+
 class Dashboard:
     """One tab per running command, in the order the commands were given."""
 
-    def __init__(self, snapshots: Mapping[str, Snapshot], every: float) -> None:
+    def __init__(
+        self,
+        snapshots: Mapping[str, Snapshot],
+        logs: Mapping[str, LogManager],
+        every: float,
+    ) -> None:
         self.every = every
         self._snapshots = dict(snapshots)
+        self._logs = dict(logs)
         self.sections = [SECTIONS[name] for name in snapshots]
         self.histories = {
             s.id: History(snapshots[s.id], s.metrics)
@@ -102,15 +126,27 @@ class Dashboard:
                 return s
         raise HTTPException(404, f"no section {section_id!r}")
 
-    def fragment(self, section: Section) -> str:
+    def view(self, section_id: str, window: Window) -> View:
+        return View(window, self._logs[section_id])
+
+    def fragment(self, section: Section, window: Window) -> str:
         history = self.histories.get(section.id)
+        view = self.view(section.id, window)
         ctx = section.context(
-            self._snapshots[section.id](), list(history.samples) if history else []
+            self._snapshots[section.id](),
+            list(history.samples) if history else [],
+            view,
         )
-        return _env.get_template(section.template).render(**ctx, updated=time.time())
+        return _env.get_template(section.template).render(
+            **ctx, updated=time.time(), window=view.describe()
+        )
 
     def page(
-        self, section_id: str, root: str, theme: str | None = None
+        self,
+        section_id: str,
+        root: str,
+        window: Window,
+        theme: str | None = None,
     ) -> HTMLResponse:
         """`root` leads from the page back to the app root, so the links survive a
         proxy that mounts the app under a prefix."""
@@ -123,32 +159,44 @@ class Dashboard:
             section=section,
             every_ms=int(self.every * 1000),
             poll_choices=POLL_CHOICES,
-            fragment=Markup(self.fragment(section)),
+            window=window,
+            units=[(u, label, TIERS[u].keep) for u, label in UNIT_LABELS.items()],
+            query=urlencode(window.to_json()),
+            fragment=Markup(self.fragment(section, window)),
             help=self.helps[section.id],
         )
         return HTMLResponse(html, headers=UI_HEADERS)
-
-    def fragment_response(self, section_id: str) -> HTMLResponse:
-        """Polled rather than streamed: some proxies only forward responses that end."""
-        html = self.fragment(self._section(section_id))
-        return HTMLResponse(html, headers={"Cache-Control": "no-store", **UI_HEADERS})
 
     def router(self) -> APIRouter:
         r = APIRouter(include_in_schema=False)
         first = self.sections[0].id
 
         # Served in place, not redirected: a redirect behind a proxy can lose the port.
-        def index(theme: ThemeCookie = None) -> HTMLResponse:
-            return self.page(first, "./", theme)
+        def index(
+            theme: ThemeCookie = None, unit: UnitQuery = None, count: CountQuery = None
+        ) -> HTMLResponse:
+            return self.page(first, "./", ui_window(unit, count), theme)
 
-        def section(section_id: str, theme: ThemeCookie = None) -> HTMLResponse:
-            return self.page(section_id, "../", theme)
+        def section(
+            section_id: str,
+            theme: ThemeCookie = None,
+            unit: UnitQuery = None,
+            count: CountQuery = None,
+        ) -> HTMLResponse:
+            return self.page(section_id, "../", ui_window(unit, count), theme)
+
+        def fragment(
+            section_id: str, unit: UnitQuery = None, count: CountQuery = None
+        ) -> HTMLResponse:
+            """Polled rather than streamed: some proxies only forward responses that end."""
+            html = self.fragment(self._section(section_id), ui_window(unit, count))
+            return HTMLResponse(
+                html, headers={"Cache-Control": "no-store", **UI_HEADERS}
+            )
 
         r.add_api_route("/", index, methods=["GET"])
         r.add_api_route("/ui/{section_id}", section, methods=["GET"])
-        r.add_api_route(
-            "/ui/{section_id}/fragment", self.fragment_response, methods=["GET"]
-        )
+        r.add_api_route("/ui/{section_id}/fragment", fragment, methods=["GET"])
         return r
 
 

@@ -31,6 +31,13 @@ def _dumps(data: dict[str, Any]) -> str:
 
 
 def record_json(record: ReadableLogRecord, with_resource: bool = False) -> str:
+    data = record_dict(record)
+    if with_resource:
+        data["resource"] = json.loads(record.resource.to_json())
+    return _dumps(data)
+
+
+def record_dict(record: ReadableLogRecord) -> dict[str, Any]:
     """OTel's JSON shape without what is always empty here or repeated on every line.
 
     Trace fields only appear when a record carries a trace; the observed time, a few
@@ -51,9 +58,7 @@ def record_json(record: ReadableLogRecord, with_resource: bool = False) -> str:
         data["trace_flags"] = r.trace_flags
     if record.dropped_attributes:
         data["dropped_attributes"] = record.dropped_attributes
-    if with_resource:
-        data["resource"] = json.loads(record.resource.to_json())
-    return _dumps(data)
+    return data
 
 
 def resource_json(resource: Resource) -> str:
