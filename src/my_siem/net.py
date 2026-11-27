@@ -182,7 +182,7 @@ def run_sniffer(
         },
     )
     try:
-        sniff(interface=interface, filter=bpf_filter(ports), prn=on_packet, store=False)
+        sniff(iface=interface, filter=bpf_filter(ports), prn=on_packet, store=False)
     except (OSError, RuntimeError) as e:
         state.source("network", "failed", str(e))
         out.emit(

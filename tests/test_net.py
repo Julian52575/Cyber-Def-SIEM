@@ -1,8 +1,11 @@
+from typing import Any
+
 import pytest
 from scapy.layers.inet import IP, TCP
 from scapy.packet import Packet, Raw
 
-from my_siem.net import ConnKind, ConnTracker, bpf_filter, parse_ports
+from my_siem import net
+from my_siem.net import ConnKind, ConnTracker, bpf_filter, parse_ports, run_sniffer
 
 CLIENT = ("10.0.0.5", 50122)
 SERVER = ("10.0.0.1", 22)
@@ -63,3 +66,19 @@ def test_parse_ports_rejects_bad_specs(spec: str) -> None:
 
 def test_bpf_filter_lists_every_port() -> None:
     assert bpf_filter(frozenset({222, 22})) == "tcp port 22 or tcp port 222"
+
+
+class _Sink:
+    def emit(self, *args: Any, **kwargs: Any) -> None: ...
+
+    def source(self, name: str, status: str, detail: str) -> None: ...
+
+
+def test_run_sniffer_passes_the_interface_to_scapy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(net, "sniff", lambda **kw: seen.update(kw))
+    run_sniffer(_Sink(), _Sink(), "ssh", "eth0", frozenset({22}), lambda _: None)  # type: ignore[arg-type]
+    assert seen["iface"] == "eth0"
+    assert seen["filter"] == "tcp port 22"
