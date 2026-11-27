@@ -61,10 +61,13 @@ install dest: build
         host="${dest%%:*}"
         dir="${dest#*:}"
         dir="${dir:-.}"
-        ssh "$host" "mkdir -p '$dir'"
+        # Remote shell must expand ~, so it can't sit inside single quotes
+        rdir="$dir"
+        if [[ "$rdir" == "~"* ]]; then rdir="\$HOME${rdir#\~}"; fi
+        ssh "$host" "mkdir -p \"$rdir\""
         # Upload to a temp name, then rename: scp fails writing over an existing (busy or read-only) my_siem
         scp dist/my_siem "$host:$dir/.my_siem.new"
-        ssh "$host" "chmod 755 '$dir/.my_siem.new' && mv -f '$dir/.my_siem.new' '$dir/my_siem'"
+        ssh "$host" "chmod 755 \"$rdir/.my_siem.new\" && mv -f \"$rdir/.my_siem.new\" \"$rdir/my_siem\""
     else
         install -Dm755 dist/my_siem "$dest/my_siem"
     fi
