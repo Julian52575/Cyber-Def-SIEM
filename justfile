@@ -69,11 +69,16 @@ install dest: build
     fi
     echo "Installed my_siem to $dest"
 
-# Write the version from .release-please-manifest.json into the package,
-# only when it changed so the file's mtime does not force a rebuild
+# Write the version from .release-please-manifest.json into the package, plus
+# the ref name and commit hash unless HEAD is the matching release tag; only when it changed
+# so the file's mtime does not force a rebuild
 [private]
 write-version:
     #!/usr/bin/env bash
-    line='VERSION = "{{version}}"'
+    v='{{version}}'
+    if ! git tag --points-at HEAD | grep -qx "v$v"; then
+        v="$v $(git rev-parse --abbrev-ref HEAD)-$(git rev-parse HEAD)"
+    fi
+    line="VERSION = \"$v\""
     f=src/my_siem/_version.py
     [[ "$(cat "$f" 2>/dev/null)" == "$line" ]] || echo "$line" > "$f"
