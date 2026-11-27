@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, PackageLoader
 from markupsafe import Markup
 
+from my_siem.version import VERSION
 from my_siem.web.sections import SECTIONS, Metrics, Section, fmt_clock
 
 type Snapshot = Callable[[], dict[str, Any]]
@@ -31,6 +32,7 @@ UI_HEADERS = {"Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff
 
 _env = Environment(loader=PackageLoader("my_siem.web"), autoescape=True)
 _env.filters["clock"] = fmt_clock
+_env.globals["version"] = VERSION
 
 
 class History:
