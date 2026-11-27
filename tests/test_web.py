@@ -15,7 +15,7 @@ from my_siem.main import COMMANDS
 from my_siem.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.log import AuthEvent, AuthKind
 from my_siem.ssh.state import SshState
-from my_siem.web import History, sse
+from my_siem.web import History
 from my_siem.web.charts import Series, line_chart, nice_ticks
 from my_siem.web.sections import (
     SECTIONS,
@@ -52,7 +52,7 @@ def test_root_serves_the_first_command_without_redirect() -> None:
     res = client.get("/", follow_redirects=False)
 
     assert res.status_code == 200
-    assert 'data-stream="./ui/ssh/stream"' in res.text
+    assert 'data-fragment="./ui/ssh/fragment"' in res.text
 
 
 @pytest.mark.parametrize(
@@ -76,7 +76,7 @@ def test_ssh_page_shows_the_live_state() -> None:
     res = client.get("/ui/ssh")
 
     assert res.status_code == 200
-    assert 'data-stream="../ui/ssh/stream"' in res.text
+    assert 'data-fragment="../ui/ssh/fragment"' in res.text
     for shown in (
         "sshd logs",
         "Network sniffer",
@@ -106,9 +106,9 @@ def test_one_tab_per_running_command_in_the_given_order() -> None:
 
     page = client.get("/ui/dummy").text
 
-    assert 'data-stream="./ui/dummy/stream"' in client.get("/").text
+    assert 'data-fragment="./ui/dummy/fragment"' in client.get("/").text
     assert page.index('href="../ui/dummy"') < page.index('href="../ui/ssh"')
-    assert 'data-stream="../ui/dummy/stream"' in page
+    assert 'data-fragment="../ui/dummy/fragment"' in page
     assert "Port scan" in page
 
 
@@ -128,7 +128,7 @@ def test_every_command_has_a_section() -> None:
 def test_static_assets_are_served() -> None:
     client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
 
-    assert "EventSource" in client.get("/static/live.js").text
+    assert "data-fragment" in client.get("/static/live.js").text
     assert client.get("/static/style.css").status_code == 200
 
 
@@ -182,30 +182,42 @@ def test_line_chart_breaks_the_line_on_unknown_points() -> None:
     assert chart["table"]["rows"][0] == ["a", "–"]
 
 
-def test_sse_frames_every_line() -> None:
-    assert sse("update", "<p>\n</p>") == "event: update\ndata: <p>\ndata: </p>\n\n"
-
-
-def test_stream_pushes_rendered_sections() -> None:
+def test_fragment_is_a_complete_response_a_proxy_can_forward() -> None:
     app = create_app({"ssh": busy_state().snapshot}, ["127.0.0.1"], every=0.05)
     server = ApiServer(app, "127.0.0.1", 0)
     server.start()
     try:
         host, port = server.socket.getsockname()[:2]
         conn = http.client.HTTPConnection(host, port, timeout=5)
-        conn.request("GET", "/ui/ssh/stream")
+        conn.request("GET", "/ui/ssh/fragment")
         res = conn.getresponse()
-        assert res.status == 200
-        assert res.getheader("content-type", "").startswith("text/event-stream")
-
-        lines = [res.readline().decode() for _ in range(4)]
+        body = res.read().decode()
         conn.close()
     finally:
         server.stop()
 
-    assert lines[0].startswith("retry: ")
-    assert lines[2] == "event: update\n"
-    assert lines[3].startswith("data: ")
+    assert res.status == 200
+    assert res.getheader("content-length") == str(len(body.encode()))
+    assert res.getheader("cache-control") == "no-store"
+    assert "10.0.0.5" in body
+    assert "<html" not in body
+
+
+def test_page_offers_refresh_rates_and_preselects_the_sampling_one() -> None:
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
+
+    html = client.get("/ui/ssh").text
+
+    for s in (1, 2, 5, 10, 15, 30, 60):
+        assert f'<option value="{s}"' in html
+    assert '<option value="5" selected>' in html
+    assert html.count(" selected>") == 1
+
+
+def test_fragment_of_an_unknown_section_is_404() -> None:
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
+
+    assert client.get("/ui/nope/fragment").status_code == 404
 
 
 def busy_http_state() -> HttpState:

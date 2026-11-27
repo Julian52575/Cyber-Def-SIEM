@@ -96,7 +96,7 @@ curl localhost:8080/ssh           # JSON
 | ----------------------- | --------------------------------------------------------------- |
 | `GET /`                 | Redirects to the first running command's dashboard              |
 | `GET /ui/<command>`     | The command's dashboard tab                                     |
-| `GET /ui/<command>/stream` | Server-Sent Events: the tab re-rendered every 5 s            |
+| `GET /ui/<command>/fragment` | The tab's content alone, polled by the page every 5 s       |
 | `GET /<command>`        | The command's live state as JSON (below)                        |
 | `GET /healthz`          | `{"status": "ok", "commands": ["ssh", "dummy"]}`                |
 | `GET /docs`             | Interactive OpenAPI docs                                        |
@@ -110,7 +110,9 @@ curl localhost:8080/ssh           # JSON
 
 Only the running commands' endpoints exist (no `/ssh` under `my_siem dummy`). The dashboard
 works without JavaScript (it then shows the data as of the page load); with it,
-`static/live.js` swaps in each update from the stream. Chart history is sampled by the
+`static/live.js` re-fetches the fragment every 5 s and swaps it in. It polls rather than
+streams because proxies that only forward finished responses would hold a stream forever.
+Chart history is sampled by the
 server every 5 s and kept for 10 minutes, so it survives reloads but not restarts.
 
 The server listens on all interfaces by default. It exposes users and addresses, so use
@@ -267,7 +269,7 @@ src/my_siem/   the package (entry point: my_siem.main:main)
   https/       the `https` command: TLS ClientHello parsing, watcher, flags
   net.py       TCP connection tracking and the sniffer, shared by ssh, http and https
   dummy/       the `dummy` command: placeholder data, a template for new commands
-  web/         the dashboard: Jinja2 templates, SVG chart geometry, SSE stream
+  web/         the dashboard: Jinja2 templates, SVG chart geometry, polled fragments
 config/        example configs, all values at their defaults
 logs/          log output when run with --path . (git-ignored)
 tests/         pytest suite

@@ -92,7 +92,7 @@ class ApiServer:
                 app,
                 log_level="warning",
                 access_log=False,
-                # Open SSE streams never end on their own; do not wait on them to stop.
+                # Do not let a lingering keep-alive connection hold up the exit.
                 timeout_graceful_shutdown=1,
             )
         )

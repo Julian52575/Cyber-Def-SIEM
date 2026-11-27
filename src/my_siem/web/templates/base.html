@@ -13,6 +13,14 @@
       <strong>my_siem</strong>
       <span class="muted">running {% for c in commands %}<code>{{ c }}</code>{{ ", " if not loop.last }}{% endfor %}</span>
       <span id="live-status" class="muted">static page: JavaScript is off</span>
+      {#- Hidden until live.js runs: without it nothing polls. #}
+      <label id="poll" class="muted" hidden>refresh every
+        <select id="poll-every">
+          {%- for s in poll_choices %}
+          <option value="{{ s }}"{% if s * 1000 == every_ms %} selected{% endif %}>{{ s }} s</option>
+          {%- endfor %}
+        </select>
+      </label>
     </div>
   </header>
   <main>
@@ -21,7 +29,7 @@
       <a href="{{ root }}ui/{{ s.id }}"{% if s.id == section.id %} aria-current="page"{% endif %}>{{ s.title }}</a>
       {%- endfor %}
     </nav>
-    <section id="panel" data-stream="{{ root }}ui/{{ section.id }}/stream">
+    <section id="panel" data-fragment="{{ root }}ui/{{ section.id }}/fragment" data-every="{{ every_ms }}">
       {{ fragment }}
     </section>
   </main>

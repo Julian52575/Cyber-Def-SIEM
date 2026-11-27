@@ -22,7 +22,7 @@ The `ssh` command, for example:
                                                           │ snapshot()
                                           api.py ◄────────┘
                                            ├── GET /ssh            JSON
-                                           └── web/  GET /ui/ssh   HTML, SSE stream
+                                           └── web/  GET /ui/ssh   HTML, polled fragment
 ```
 
 ## `ssh/`: the `ssh` command
@@ -71,7 +71,7 @@ Server-Sent Events, and they still show the data as of the page load without Jav
 
 | File                  | Role |
 | --------------------- | ---- |
-| `__init__.py`         | `Dashboard`: one tab per running command, the routes (`/`, `/ui/<command>`, `/ui/<command>/stream`), a `History` sampler for each section that keeps one, and the security headers. |
+| `__init__.py`         | `Dashboard`: one tab per running command, the routes (`/`, `/ui/<command>`, `/ui/<command>/fragment`), a `History` sampler for each section that keeps one, and the security headers. |
 | `sections.py`         | `SECTIONS`, one `Section` per command: `context()` turns a snapshot (plus its history) into template values, and `metrics()`, if set, picks what the sampler keeps for the charts. Also holds the formatting helpers. |
 | `charts.py`           | Chart geometry in Python (line paths, ticks, bars, the flow diagram), so the templates only place what they are given. |
 | `templates/`          | `base.html` (page shell and tabs), `_charts.html` (chart macros), one template per section. |
@@ -84,8 +84,8 @@ How a page stays live:
    section that has `metrics()` records them, and the last 120 samples (10 minutes) are
    kept. That history feeds the `ssh` line charts, so it survives reloads but not restarts.
 2. `GET /ui/ssh` renders the section into `base.html`.
-3. `live.js` opens `GET /ui/ssh/stream`. Every 5 s the server re-renders the same
-   section template and sends it as an `update` event.
+3. Every 5 s `live.js` fetches `GET /ui/ssh/fragment`, the same section template
+   re-rendered on its own, and swaps it in.
 
 Security: sshd usernames are attacker-controlled, so templates are always autoescaped
 and a Content-Security-Policy allows only same-origin scripts, never inline ones. The

@@ -1,14 +1,14 @@
-"""Server-rendered dashboard, kept live by Server-Sent Events."""
+"""Server-rendered dashboard, kept live by polling for re-rendered fragments."""
 
 import asyncio
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, PackageLoader
 from markupsafe import Markup
@@ -21,6 +21,8 @@ type Snapshot = Callable[[], dict[str, Any]]
 STATIC_DIR = Path(__file__).parent / "static"
 # ~10 minutes of history at the default 5 s.
 MAX_SAMPLES = 120
+# Seconds between dashboard refreshes the reader can pick from.
+POLL_CHOICES = (1, 2, 5, 10, 15, 30, 60)
 
 # Usernames in sshd logs are attacker-controlled: autoescape everything, run no inline script.
 CSP = (
@@ -52,12 +54,6 @@ class History:
         while True:
             self.record()
             await asyncio.sleep(every)
-
-
-def sse(event: str, data: str) -> str:
-    # Each line of the payload needs its own `data:` field.
-    lines = "".join(f"data: {line}\n" for line in data.splitlines())
-    return f"event: {event}\n{lines}\n"
 
 
 class Dashboard:
@@ -100,31 +96,16 @@ class Dashboard:
             commands=list(self._snapshots),
             sections=self.sections,
             section=section,
+            every_ms=int(self.every * 1000),
+            poll_choices=POLL_CHOICES,
             fragment=Markup(self.fragment(section)),
         )
         return HTMLResponse(html, headers=UI_HEADERS)
 
-    def stream(self, section_id: str) -> StreamingResponse:
-        section = self._section(section_id)
-
-        async def events() -> AsyncIterator[str]:
-            # The browser reconnects by itself, e.g. after the SIEM restarts.
-            yield f"retry: {int(self.every * 1000)}\n\n"
-            while True:
-                yield sse("update", self.fragment(section))
-                await asyncio.sleep(self.every)
-
-        return StreamingResponse(
-            events(),
-            media_type="text/event-stream",
-            # Stop proxies from holding the stream back: X-Accel-Buffering for nginx,
-            # no-transform for compressors like Apache's mod_deflate, which buffer.
-            headers={
-                "Cache-Control": "no-store, no-transform",
-                "X-Accel-Buffering": "no",
-                **UI_HEADERS,
-            },
-        )
+    def fragment_response(self, section_id: str) -> HTMLResponse:
+        """Polled rather than streamed: some proxies only forward responses that end."""
+        html = self.fragment(self._section(section_id))
+        return HTMLResponse(html, headers={"Cache-Control": "no-store", **UI_HEADERS})
 
     def router(self) -> APIRouter:
         r = APIRouter(include_in_schema=False)
@@ -136,7 +117,9 @@ class Dashboard:
             lambda section_id: self.page(section_id, "../"),
             methods=["GET"],
         )
-        r.add_api_route("/ui/{section_id}/stream", self.stream, methods=["GET"])
+        r.add_api_route(
+            "/ui/{section_id}/fragment", self.fragment_response, methods=["GET"]
+        )
         return r
 
 

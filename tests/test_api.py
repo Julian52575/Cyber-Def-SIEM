@@ -78,7 +78,7 @@ def test_every_route_is_read_only() -> None:
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 @pytest.mark.parametrize(
-    "path", ["/ssh", "/healthz", "/docs", "/ui/ssh", "/ui/ssh/stream", "/nowhere"]
+    "path", ["/ssh", "/healthz", "/docs", "/ui/ssh", "/ui/ssh/fragment", "/nowhere"]
 )
 def test_writes_are_refused_everywhere(method: str, path: str) -> None:
     client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
