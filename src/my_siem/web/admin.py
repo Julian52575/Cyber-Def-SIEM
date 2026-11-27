@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from my_siem.clock import HOUR, MINUTE, hour_start, minute_start
 from my_siem.live import iso
 from my_siem.logs import LogManager, Retention
 from my_siem.logs.files import MB, list_logs
@@ -17,23 +16,21 @@ from my_siem.logs.importer import Importer
 class Job:
     service: str
     name: str
-    schedule: str
+    frequency: str
     last: float | None
-    next: float | None
     state: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
             "service": self.service,
             "name": self.name,
-            "schedule": self.schedule,
+            "frequency": self.frequency,
             "last": None if self.last is None else iso(self.last),
-            "next": None if self.next is None else iso(self.next),
             "state": self.state,
         }
 
 
-def log_jobs(logs: LogManager, now: float) -> list[Job]:
+def log_jobs(logs: LogManager) -> list[Job]:
     """Both run on the first event past their boundary: a quiet command waits for one."""
     service = f"Log manager ({logs.command})"
     jobs = []
@@ -42,9 +39,8 @@ def log_jobs(logs: LogManager, now: float) -> list[Job]:
             Job(
                 service,
                 "Start the hour's file, gzip closed hours, apply retention",
-                "hourly, on the first event of the hour",
+                "Every hour, on its first event",
                 logs.writer.last_sweep,
-                hour_start(now) + HOUR,
             )
         )
     if logs.rollup.path is not None:
@@ -52,9 +48,8 @@ def log_jobs(logs: LogManager, now: float) -> list[Job]:
             Job(
                 service,
                 "Save the counts (rollup.json)",
-                "every minute, on the first event of the minute; and on exit",
+                "Every minute, on its first event; and on exit",
                 logs.rollup.saved_at,
-                minute_start(now) + MINUTE,
             )
         )
     return jobs
@@ -157,17 +152,16 @@ class AdminPanel:
         self.log_root = log_root
         self.retention = retention
 
-    def jobs(self, now: float) -> list[Job]:
-        jobs = [j for logs in self.logs.values() for j in log_jobs(logs, now)]
+    def jobs(self) -> list[Job]:
+        jobs = [j for logs in self.logs.values() for j in log_jobs(logs)]
         job = self.importer.job
         if job is not None:
             jobs.append(
                 Job(
                     "Admin",
                     "Log import",
-                    "on demand, from this tab",
+                    "On demand, from this tab",
                     job.started_at,
-                    None,
                     job.state,
                 )
             )

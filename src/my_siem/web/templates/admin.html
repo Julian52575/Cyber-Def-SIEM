@@ -3,10 +3,9 @@
   <script src="{{ root }}static/admin.js?v={{ asset_version }}" defer></script>
 {%- endblock %}
 {% block content %}
-    <section id="panel" data-fragment="{{ root }}ui/admin/fragment" data-every="{{ every_ms }}">
-      {{ fragment }}
-    </section>
     <section class="admin-static">
+      {{ jobs }}
+
       {{ usage }}
 
       <div class="card" id="import">
@@ -23,7 +22,7 @@
         </p>
         {%- else %}
         <noscript><p class="error">The import needs JavaScript.</p></noscript>
-        <form id="import-form" class="import-form" data-estimate="{{ root }}admin/import/estimate" data-start="{{ root }}admin/import" data-status="{{ root }}admin/import">
+        <form id="import-form" class="import-form" data-estimate="{{ root }}admin/import/estimate" data-start="{{ root }}admin/import" data-start-get="{{ root }}admin/import/start" data-token="{{ import_token }}" data-status="{{ root }}admin/import">
           <fieldset class="import-commands">
             <legend>Commands to import</legend>
             {%- for s in sources %}

@@ -29,7 +29,6 @@ from my_siem.web.sections import (
     View,
     fmt_bytes,
     fmt_clock,
-    fmt_duration,
 )
 
 type Snapshot = Callable[[], dict[str, Any]]
@@ -112,20 +111,13 @@ STATE_BADGES = {
 }
 
 
-def fmt_when(at: float | None, now: float) -> str:
-    """Paris time, with the date when not today, and how far from now."""
+def fmt_at(at: float | None, now: float) -> str:
+    """Paris time, with the date when not today."""
     if at is None:
         return "–"
     t = local(at)
     day = "" if t.date() == local(now).date() else t.strftime("%a %d %b ")
-    delta = at - now
-    if abs(delta) < 1:
-        rel = "now"
-    elif delta > 0:
-        rel = f"in {fmt_duration(delta)}"
-    else:
-        rel = f"{fmt_duration(-delta)} ago"
-    return f"{day}{t:%H:%M:%S} ({rel})"
+    return f"{day}{t:%H:%M:%S}"
 
 
 def _hour(at: int | None) -> str:
@@ -236,9 +228,9 @@ class Dashboard:
 
     # --- admin tab ----------------------------------------------------------
 
-    def jobs(self, now: float) -> list[Job]:
-        """Every service's scheduled jobs, the soonest due first."""
-        jobs = self.admin.jobs(now)
+    def jobs(self) -> list[Job]:
+        """Every service's scheduled jobs."""
+        jobs = self.admin.jobs()
         for s in self.sections:
             history = self.histories.get(s.id)
             if history is not None:
@@ -247,23 +239,16 @@ class Dashboard:
                     Job(
                         f"Dashboard ({s.id})",
                         "Sample active connections for the live chart",
-                        f"every {self.every:g} s, on the clock",
+                        f"Every {self.every:g} s",
                         last,
-                        (now // self.every + 1) * self.every,
                     )
                 )
-        return sorted(jobs, key=lambda j: (j.next is None, j.next or 0.0))
+        return jobs
 
-    def admin_fragment(self) -> str:
+    def jobs_card(self) -> str:
+        """Rendered with the page only: the frequencies say when jobs run, no polling."""
         now = time.time()
-        rows = [
-            {
-                **j.to_json(),
-                "last": fmt_when(j.last, now),
-                "next": fmt_when(j.next, now),
-            }
-            for j in self.jobs(now)
-        ]
+        rows = [{**j.to_json(), "last": fmt_at(j.last, now)} for j in self.jobs()]
         return _env.get_template("admin_jobs.html").render(
             jobs=rows, updated=now, state_badges=STATE_BADGES
         )
@@ -289,9 +274,10 @@ class Dashboard:
             **self._layout(root, window, theme, "admin"),
             title="Admin",
             help=None,
-            fragment=Markup(self.admin_fragment()),
+            jobs=Markup(self.jobs_card()),
             usage=Markup(self.usage_card(root, window)),
             log_root=self.admin.log_root,
+            import_token=importer.token,
             sources=[
                 {"name": name, "where": s.where} for name, s in importer.sources.items()
             ],
@@ -331,12 +317,6 @@ class Dashboard:
         ) -> HTMLResponse:
             return self.admin_page("../", ui_window(unit, count), theme)
 
-        def admin_fragment() -> HTMLResponse:
-            return HTMLResponse(
-                self.admin_fragment(),
-                headers={"Cache-Control": "no-store", **UI_HEADERS},
-            )
-
         def usage(unit: UnitQuery = None, count: CountQuery = None) -> HTMLResponse:
             # Relative to the page that swaps it in, /ui/admin.
             html = self.usage_card("../", ui_window(unit, count))
@@ -347,7 +327,6 @@ class Dashboard:
         r.add_api_route("/", index, methods=["GET"])
         # Before /ui/{section_id}, which would take "admin" for a command.
         r.add_api_route("/ui/admin", admin, methods=["GET"])
-        r.add_api_route("/ui/admin/fragment", admin_fragment, methods=["GET"])
         r.add_api_route("/ui/admin/usage", usage, methods=["GET"])
         r.add_api_route("/ui/{section_id}", section, methods=["GET"])
         r.add_api_route("/ui/{section_id}/fragment", fragment, methods=["GET"])

@@ -2,7 +2,7 @@
   <div class="card-head">
     <h3>Log size</h3>
     {#- A link, so it rescans by reloading without JavaScript; admin.js swaps the card in place. #}
-    <a class="button" id="usage-rescan" href="{{ root }}ui/admin?{{ query }}" data-fragment="{{ root }}ui/admin/usage">Rescan</a>
+    <a class="button" id="usage-rescan" href="{{ root }}ui/admin?{{ query }}" data-usage="{{ root }}ui/admin/usage">Rescan</a>
   </div>
   {%- if log_root is none %}
   <p class="empty">Log files are off (<code>--no-log</code>): nothing is written to disk.</p>

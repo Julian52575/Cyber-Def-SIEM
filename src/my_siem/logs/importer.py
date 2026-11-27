@@ -8,6 +8,7 @@ running writer. Records already in the files are not written twice.
 import gzip
 import json
 import re
+import secrets
 import threading
 import time
 from collections import Counter, defaultdict
@@ -286,7 +287,13 @@ class Importer:
     sources: Mapping[str, Source]
     clock: Callable[[], float] = time.time
     job: ImportJob | None = None
+    # Lets a GET start an import through a proxy that only forwards GET: only the
+    # admin page holds it, and another site cannot read that page. New on each run.
+    token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def check_token(self, token: str | None) -> bool:
+        return token is not None and secrets.compare_digest(token, self.token)
 
     def __post_init__(self) -> None:
         self.sources = {

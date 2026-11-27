@@ -55,12 +55,14 @@ function item(text, cls) {
 
 // FastAPI's errors: a string, or a list of validation failures.
 async function failure(res) {
+  let detail = res.statusText;
   try {
     const body = await res.json();
-    if (typeof body.detail === "string") return body.detail;
-    if (Array.isArray(body.detail)) return body.detail.map((d) => d.msg).join("; ");
+    if (typeof body.detail === "string") detail = body.detail;
+    if (Array.isArray(body.detail)) detail = body.detail.map((d) => d.msg).join("; ");
   } catch {}
-  return `HTTP ${res.status}`;
+  // The status and URL tell a refusal by my_siem from one by a proxy on the way.
+  return `${detail} (HTTP ${res.status} from ${new URL(res.url).pathname})`;
 }
 
 function chosen() {
@@ -141,11 +143,21 @@ async function start() {
   goButton.disabled = true;
   try {
     // JSON, which a form on another site cannot send: see _cross_site in api.py.
-    const res = await fetch(form.dataset.start, {
+    let res = await fetch(form.dataset.start, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pending),
     });
+    // A proxy that only forwards GET (my_siem itself never answers this route 405).
+    if (res.status === 405) {
+      const query = new URLSearchParams({
+        unit: pending.unit,
+        count: pending.count,
+        token: form.dataset.token,
+      });
+      for (const c of pending.commands) query.append("command", c);
+      res = await fetch(`${form.dataset.startGet}?${query}`, { cache: "no-store" });
+    }
     if (!res.ok) throw new Error(await failure(res));
     dialog.close();
     showProgress(await res.json());
@@ -208,7 +220,7 @@ async function rescanUsage() {
   const link = document.getElementById("usage-rescan");
   if (!card || !link) return;
   try {
-    const res = await fetch(`${link.dataset.fragment}${location.search}`, { cache: "no-store" });
+    const res = await fetch(`${link.dataset.usage}${location.search}`, { cache: "no-store" });
     if (!res.ok || res.redirected) throw new Error(`HTTP ${res.status}`);
     // Rendered by the server with autoescaping on, like live.js's fragments.
     card.outerHTML = await res.text();

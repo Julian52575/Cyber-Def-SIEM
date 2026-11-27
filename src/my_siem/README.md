@@ -74,11 +74,11 @@ the section's fragment, and they still show the data as of the page load without
 
 | File                  | Role |
 | --------------------- | ---- |
-| `__init__.py`         | `Dashboard`: one tab per running command then the admin tab, the routes (`/`, `/ui/<command>`, `/ui/<command>/fragment`, each taking the window as `unit` and `count`; `/ui/admin` and its fragments), a `History` sampler for each section that keeps one, and the security headers. |
+| `__init__.py`         | `Dashboard`: one tab per running command then the admin tab, the routes (`/`, `/ui/<command>`, `/ui/<command>/fragment`, each taking the window as `unit` and `count`; `/ui/admin`, not polled, and `/ui/admin/usage` for a rescan), a `History` sampler for each section that keeps one, and the security headers. |
 | `admin.py`            | `AdminPanel`: the scheduled jobs of each `LogManager` (the samplers' are added by `Dashboard.jobs`), the scan of the log folders, and the `Importer`. The JSON routes under `/admin/` are in `api.py`. |
 | `sections.py`         | `SECTIONS`, one `Section` per command: `context()` turns a snapshot, its live samples and a `View` (the window, read through the command's `LogManager`) into template values; `metrics()`, if set, picks what the sampler keeps for the live charts. Also holds the formatting helpers. |
 | `charts.py`           | Chart geometry in Python (line paths, ticks, bars, the flow diagram), so the templates only place what they are given. |
-| `templates/`          | `base.html` (page shell and tabs), `section.html` (a command's tab: time range bar and panel), `_charts.html` (chart macros), one template per section; `admin.html` and its `admin_jobs.html` (polled) and `admin_usage.html` parts. |
+| `templates/`          | `base.html` (page shell and tabs), `section.html` (a command's tab: time range bar and panel), `_charts.html` (chart macros), one template per section; `admin.html` and its `admin_jobs.html` and `admin_usage.html` parts. |
 | `static/live.js`      | Polls the section's fragment for the chosen window and swaps it in, keeping open `<details>` open; drives the time range bar and keeps it in the URL and tab links. |
 | `static/admin.js`     | The log import: estimate, confirm in a `<dialog>`, start it, then follow it every second. Also swaps a rescanned log size card in. Everything from the server is set as text. |
 | `static/style.css`    | Theme tokens (light and dark) and layout. |
@@ -97,9 +97,12 @@ Security: sshd usernames are attacker-controlled, so templates are always autoes
 and a Content-Security-Policy allows only same-origin scripts, never inline ones. The
 server answers only to `api_allowed_hosts` (against DNS rebinding) and refuses every
 method but `GET` and `HEAD`, except `POST /admin/import` (`WRITE_ROUTES` in `api.py`).
-That one needs a JSON body and, from a browser, an `Origin` naming one of the allowed
-hosts (`_cross_site`): a form or a script on another site cannot send either, so it
-cannot start an import (CSRF).
+That one needs a JSON body and, from a browser, an `Origin` naming the host it was sent
+to, or one listed by name in `api_allowed_hosts` (`_cross_site`; a `*` there lets any
+`Host` in, never any `Origin`): a form or a script on another site cannot send either, so it
+cannot start an import (CSRF). Through a proxy that forwards only `GET`, `admin.js`
+falls back to `GET /admin/import/start` with `Importer.token`, a random value made at
+startup and embedded in the admin page, which another site cannot read.
 
 ## `logs/`: where events are written and read back
 

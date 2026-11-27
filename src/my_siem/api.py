@@ -45,15 +45,20 @@ def _cross_site(request: Request, hosts: frozenset[str]) -> Response | None:
 
     A page elsewhere can submit a form here, but not with a JSON body, nor with its own
     Origin passing for ours. Clients that are not browsers send no Origin.
+
+    The Origin must name the host the request was sent to, or one listed in `hosts`
+    by name (behind a proxy that rewrites Host). A wildcard there, which lets any
+    Host in, never lets another site's Origin in.
     """
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         return JSONResponse({"detail": "expected a JSON body"}, status_code=415)
     origin = request.headers.get("origin")
     site = request.headers.get("sec-fetch-site", "same-origin")
-    if (origin is not None and urlsplit(origin).hostname not in hosts) or site not in {
-        "same-origin",
-        "none",
-    }:
+    if origin is not None:
+        host = urlsplit(origin).hostname
+        if host is None or (host != request.url.hostname and host not in hosts):
+            return JSONResponse({"detail": "cross-site write refused"}, status_code=403)
+    if site not in {"same-origin", "none"}:
         return JSONResponse({"detail": "cross-site write refused"}, status_code=403)
     return None
 
@@ -75,7 +80,8 @@ def create_app(
     importer = Importer(logs, sources or {})
     admin = AdminPanel(logs, importer, log_root, retention)
     dashboard = Dashboard(snapshots, logs, every, admin)
-    hosts = frozenset(h.strip("[]") for h in allowed_hosts)
+    # Named hosts only: a pattern like "*" says which Host to answer, not who may write.
+    hosts = frozenset(h.strip("[]") for h in allowed_hosts if "*" not in h)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -138,7 +144,7 @@ class ImportRequest(BaseModel):
 def _admin_routes(app: FastAPI, dashboard: Dashboard, importer: Importer) -> None:
     @app.get("/admin/jobs", summary="Every service's scheduled jobs")
     def jobs() -> list[dict[str, Any]]:
-        return [j.to_json() for j in dashboard.jobs(time.time())]
+        return [j.to_json() for j in dashboard.jobs()]
 
     @app.get("/admin/logs", summary="Size of each log folder")
     def log_usage() -> list[dict[str, Any]]:
@@ -162,14 +168,38 @@ def _admin_routes(app: FastAPI, dashboard: Dashboard, importer: Importer) -> Non
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
 
-    @app.post("/admin/import", status_code=202, summary="Start a log import")
-    def start_import(body: ImportRequest) -> dict[str, Any]:
+    def start(commands: list[str], unit: str, count: int) -> dict[str, Any]:
         try:
-            return _job_json(importer.start(body.commands, body.unit, body.count))
+            return _job_json(importer.start(commands, unit, count))
         except ImportBusy as e:
             raise HTTPException(409, str(e)) from e
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
+
+    @app.post("/admin/import", status_code=202, summary="Start a log import")
+    def start_import(body: ImportRequest) -> dict[str, Any]:
+        return start(body.commands, body.unit, body.count)
+
+    @app.get(
+        "/admin/import/start",
+        status_code=202,
+        summary="Start a log import, through a proxy that only forwards GET",
+    )
+    def start_import_get(
+        request: Request,
+        response: Response,
+        command: Annotated[list[str], Query(min_length=1)],
+        unit: Literal["hour", "day"],
+        count: Annotated[int, Query(ge=1)],
+        token: Annotated[str | None, Query(description="From the admin page")] = None,
+    ) -> dict[str, Any]:
+        """A GET writes here, so a link or an image on another site must not do it:
+        the token proves the caller read the admin page, which only this site can."""
+        site = request.headers.get("sec-fetch-site", "same-origin")
+        if not importer.check_token(token) or site not in {"same-origin", "none"}:
+            raise HTTPException(403, "bad or stale token: reload the admin page")
+        response.headers["Cache-Control"] = "no-store"
+        return start(command, unit, count)
 
 
 def _job_json(job: ImportJob) -> dict[str, Any]:

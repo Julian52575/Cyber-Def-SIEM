@@ -74,14 +74,16 @@ def test_admin_tab_without_log_files_says_so(tmp_path: Path) -> None:
     assert 'id="import-form"' not in html
 
 
-def test_admin_fragments_are_served(tmp_path: Path) -> None:
+def test_admin_tab_is_not_polled(tmp_path: Path) -> None:
     client = TestClient(admin_app(tmp_path)[0])
 
-    jobs = client.get("/ui/admin/fragment")
-    usage = client.get("/ui/admin/usage")
+    html = client.get("/ui/admin").text
 
-    assert "Scheduled jobs" in jobs.text
-    assert jobs.headers["cache-control"] == "no-store"
+    # live.js polls the element with data-fragment: the admin tab must have none.
+    assert "data-fragment" not in html
+    assert "Every 5 s" in html and "Every hour, on its first event" in html
+    assert client.get("/ui/admin/fragment").status_code == 404
+    usage = client.get("/ui/admin/usage")
     assert usage.text.lstrip().startswith('<div class="card" id="usage">')
 
 
@@ -94,8 +96,7 @@ def test_jobs_and_log_sizes_as_json(tmp_path: Path) -> None:
     [folder] = client.get("/admin/logs").json()
 
     assert {j["service"] for j in jobs} == {"Log manager (ssh)", "Dashboard (ssh)"}
-    nexts = [j["next"] for j in jobs]
-    assert nexts == sorted(nexts)
+    assert all("next" not in j and j["frequency"] for j in jobs)
     assert folder["name"] == "ssh"
     assert folder["log_files"] == 1
     assert folder["plain_bytes"] > 0
@@ -188,3 +189,75 @@ def test_other_writes_stay_refused(tmp_path: Path) -> None:
     ]:
         res = client.request(method, path, json={})
         assert res.status_code == 405, (method, path)
+
+
+@pytest.mark.parametrize(
+    ("host", "origin", "status"),
+    [
+        ("bastion.example:8080", "http://bastion.example:8080", 202),
+        ("localhost:18081", "http://localhost:18081", 202),  # an SSH tunnel
+        ("bastion.example:8080", "https://evil.example", 403),
+        ("bastion.example:8080", "null", 403),
+    ],
+)
+def test_with_any_host_allowed_only_the_same_origin_may_import(
+    tmp_path: Path, host: str, origin: str, status: int
+) -> None:
+    auth = tmp_path / "auth.log"
+    auth.write_text("")
+    logs = LogManager("ssh", tmp_path / "logs" / "ssh", KEEP)
+    app = create_app(
+        {"ssh": SshState({}).snapshot},
+        ["*"],
+        logs={"ssh": logs},
+        sources={"ssh": import_source(SshMonitorConfig(auth_log=str(auth)))},
+        log_root=tmp_path / "logs",
+        retention=KEEP,
+    )
+    body = '{"commands": ["ssh"], "unit": "hour", "count": 1}'
+
+    res = TestClient(app).post(
+        f"http://{host}/admin/import",
+        content=body,
+        headers={**JSON, "origin": origin, "sec-fetch-site": "same-origin"},
+    )
+
+    assert res.status_code == status, res.text
+
+
+def test_a_get_with_the_page_token_starts_an_import(tmp_path: Path) -> None:
+    app, _ = admin_app(tmp_path)
+    client = TestClient(app)
+    html = client.get("/ui/admin").text
+    token = html.split('data-token="')[1].split('"')[0]
+    query = "command=ssh&unit=hour&count=1"
+
+    started = client.get(f"/admin/import/start?{query}&token={token}")
+
+    assert started.status_code == 202, started.text
+    assert started.headers["cache-control"] == "no-store"
+    assert len(token) >= 32
+
+
+@pytest.mark.parametrize(
+    ("token", "headers"),
+    [
+        (None, {}),
+        ("guess", {}),
+        ("PAGE", {"sec-fetch-site": "cross-site"}),  # an <img> on another site
+    ],
+)
+def test_a_get_without_the_page_token_is_refused(
+    tmp_path: Path, token: str | None, headers: dict[str, str]
+) -> None:
+    app, _ = admin_app(tmp_path)
+    client = TestClient(app)
+    html = client.get("/ui/admin").text
+    if token == "PAGE":
+        token = html.split('data-token="')[1].split('"')[0]
+    query = "command=ssh&unit=hour&count=1" + (f"&token={token}" if token else "")
+
+    res = client.get(f"/admin/import/start?{query}", headers=headers)
+
+    assert res.status_code == 403
+    assert client.get("/admin/import").json() == {"state": "idle"}

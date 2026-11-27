@@ -109,10 +109,11 @@ curl 'localhost:8080/ssh?unit=day&count=7'    # JSON, last 7 days
 | `GET /<command>`        | The command's live state, and what it logged in a window, as JSON (below) |
 | `GET /healthz`          | `{"status": "ok", "commands": ["ssh", "dummy"]}`                |
 | `GET /ui/admin`         | The admin tab (see [Admin tab](#admin-tab))                     |
-| `GET /admin/jobs`       | Every service's scheduled jobs: last run, next due              |
+| `GET /admin/jobs`       | Every service's scheduled jobs: frequency, last run             |
 | `GET /admin/logs`       | Size of each folder under `logs/`                               |
 | `GET /admin/import/estimate?command=ssh&unit=day&count=7` | What an import would read and write, writing nothing |
 | `POST /admin/import`    | Start an import: `{"commands": ["ssh"], "unit": "day", "count": 7}`; `409` while one runs |
+| `GET /admin/import/start?command=ssh&unit=day&count=7&token=...` | Start an import through a proxy that only forwards `GET` (token below) |
 | `GET /admin/import`     | The last import, as it goes (`{"state": "idle"}` before any)    |
 | `GET /docs`             | Interactive OpenAPI docs                                        |
 
@@ -175,8 +176,8 @@ loses at most the last minute). With `--no-log` the counts are kept in memory on
 
 The dashboard's last tab, **Admin** (`/ui/admin`), has three parts:
 
-- **Scheduled jobs**: what each service runs on its own, when it last ran and when it is
-  next due, refreshed like the other tabs. Each command's log manager starts a new hourly
+- **Scheduled jobs**: what each service runs on its own, how often, and when it last ran
+  (as of the page load: this tab is not polled, reload it to update). Each command's log manager starts a new hourly
   file and sweeps (gzip, retention) on the first event of each hour, and saves
   `rollup.json` on the first event of each minute: a quiet command waits for its next
   event. The dashboard samples active connections every 5 s. A log import shows up too.
@@ -209,8 +210,16 @@ like the rest. Records already logged are skipped, so an import can be run again
   skipped whole, and the estimate says how many were.
 
 Only running commands that write log files can import. Starting an import is the API's
-one write: it must send a JSON body, and a browser's `Origin` must be one of the API's
-own host names, so a page on another site cannot start one.
+one write: it must send a JSON body, and a browser's `Origin` must name the host the
+request went to (or one listed by name in `api_allowed_hosts`, for a proxy that rewrites
+`Host`), so a page on another site cannot start one, even with `api_allowed_hosts: ["*"]`.
+
+Behind a proxy that only forwards `GET`, the POST gets `405` from the proxy, and the admin
+tab retries with `GET /admin/import/start`, carrying a token embedded in the admin page.
+The token is random, new on each run, and only that page holds it: another site can link
+to the URL but cannot read the page, so it cannot start an import. A token from before a
+restart is refused (`403`): reload the tab. The token travels in the URL, so a proxy that
+logs URLs keeps it until the next restart.
 
 ### Tracking SSH connections
 

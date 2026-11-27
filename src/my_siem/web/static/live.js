@@ -1,7 +1,7 @@
 // Swaps in the section fragment, re-fetched every few seconds (see my_siem/web/__init__.py).
 // Polled, not streamed: some proxies hold a never-ending response forever.
 // Without JavaScript the page still shows the data as of its load.
-const panel = document.querySelector("[data-fragment]");
+const panel = document.querySelector("#panel[data-fragment]");
 const status = document.getElementById("live-status");
 const poll = document.getElementById("poll");
 const pollEvery = document.getElementById("poll-every");
@@ -153,6 +153,9 @@ if (panel) {
   poll.hidden = false;
   status.textContent = "connecting…";
   refresh();
+} else if (status) {
+  // A page with nothing to refresh (the admin tab) is not "static" for lack of JavaScript.
+  status.hidden = true;
 }
 
 // A cookie, not localStorage, so the server renders the choice and nothing flashes.
