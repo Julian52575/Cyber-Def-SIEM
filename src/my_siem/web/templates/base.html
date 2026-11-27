@@ -43,10 +43,14 @@
         <label><input type="radio" name="unit" value="{{ u }}" data-max="{{ max }}"{% if u == window.unit %} checked{% endif %}> {{ label }}</label>
         {%- endfor %}
       </fieldset>
-      <label class="window-count">
-        <input type="range" id="window-count" name="count" min="1" max="{{ window.max }}" value="{{ window.count }}">
-        <output id="window-label" for="window-count">{{ window.label() }}</output>
-      </label>
+      <div class="window-count">
+        {#- The number field carries the value, so typing one works without JavaScript too. #}
+        <input type="range" id="window-slider" min="1" max="{{ window.max }}" value="{{ window.count }}" aria-label="Time range length">
+        <label class="window-number">Last
+          <input type="number" id="window-count" name="count" min="1" max="{{ window.max }}" value="{{ window.count }}" required inputmode="numeric">
+          <span id="window-unit">{{ window.unit }}{{ "s" if window.count > 1 }}</span>
+        </label>
+      </div>
       <noscript><button type="submit">Apply</button></noscript>
     </form>
     <section id="panel" data-fragment="{{ root }}ui/{{ section.id }}/fragment" data-every="{{ every_ms }}">

@@ -19,10 +19,16 @@ function schedule() {
 // The time window, as the query of every fragment fetch and tab link.
 const windowForm = document.getElementById("window");
 const windowCount = document.getElementById("window-count");
-const windowLabel = document.getElementById("window-label");
+const windowSlider = document.getElementById("window-slider");
+const windowUnitLabel = document.getElementById("window-unit");
+const TYPING_PAUSE = 600;
+let typingTimer = null;
 
+// Mid-typing the field may be empty or out of range: polls keep the last valid count.
 function windowQuery() {
-  return windowForm ? new URLSearchParams(new FormData(windowForm)).toString() : "";
+  if (!windowForm) return "";
+  const count = typedCount() ?? windowSlider.value;
+  return new URLSearchParams({ unit: windowUnit().value, count }).toString();
 }
 
 async function refresh() {
@@ -65,11 +71,26 @@ function windowUnit() {
 
 function showWindow() {
   const n = Number(windowCount.value);
-  windowLabel.textContent = `Last ${n} ${windowUnit().value}${n > 1 ? "s" : ""}`;
+  windowUnitLabel.textContent = `${windowUnit().value}${n > 1 ? "s" : ""}`;
+}
+
+// A whole number within the unit's range, or null while it is not one (e.g. empty).
+function typedCount() {
+  const n = Number(windowCount.value);
+  return windowCount.value !== "" && Number.isInteger(n) && n >= 1 && n <= Number(windowCount.max)
+    ? n
+    : null;
+}
+
+function setCount(n) {
+  windowCount.value = n;
+  windowSlider.value = n;
+  showWindow();
 }
 
 // The window lives in the URL, so a reload, a bookmark or a tab switch keeps it.
 function applyWindow() {
+  clearTimeout(typingTimer);
   const query = windowQuery();
   history.replaceState(null, "", `?${query}`);
   for (const tab of document.querySelectorAll(".tabs a")) {
@@ -86,15 +107,33 @@ if (panel && windowForm) {
   });
   for (const radio of windowForm.querySelectorAll("input[name=unit]")) {
     radio.addEventListener("change", () => {
-      windowCount.max = radio.dataset.max;
-      windowCount.value = Math.min(Number(windowCount.value), Number(radio.dataset.max));
-      showWindow();
+      const max = Number(radio.dataset.max);
+      windowCount.max = max;
+      windowSlider.max = max;
+      setCount(Math.min(typedCount() ?? Number(windowSlider.value), max));
       applyWindow();
     });
   }
-  // The label follows the thumb; the data waits for it to be let go.
-  windowCount.addEventListener("input", showWindow);
-  windowCount.addEventListener("change", applyWindow);
+  // The number follows the thumb; the data waits for it to be let go.
+  windowSlider.addEventListener("input", () => setCount(windowSlider.value));
+  windowSlider.addEventListener("change", applyWindow);
+  // Typed: applied after a pause, so "45" does not first load "4".
+  windowCount.addEventListener("input", () => {
+    clearTimeout(typingTimer);
+    const n = typedCount();
+    if (n === null) return;
+    windowSlider.value = n;
+    showWindow();
+    typingTimer = setTimeout(applyWindow, TYPING_PAUSE);
+  });
+  // On leaving the field (or Enter), an out-of-range value is pulled back in.
+  windowCount.addEventListener("change", () => {
+    const n = Number(windowCount.value);
+    const valid = windowCount.value !== "" && Number.isFinite(n);
+    const max = Number(windowCount.max);
+    setCount(valid ? Math.min(Math.max(Math.round(n), 1), max) : windowSlider.value);
+    applyWindow();
+  });
 }
 
 if (panel) {

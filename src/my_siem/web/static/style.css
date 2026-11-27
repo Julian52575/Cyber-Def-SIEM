@@ -167,15 +167,42 @@ form.window {
   gap: 0.75rem;
 }
 
-.window-count input {
+#window-slider {
   flex: 1;
   min-width: 8rem;
   accent-color: var(--accent);
 }
 
-.window-count output {
-  min-width: 9rem;
+.window-number {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.window-number input {
+  width: 4.5rem;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--page);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+}
+
+.window-number input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.window-number input:invalid {
+  border-color: var(--critical);
+}
+
+/* Fixed width, so the slider does not jump between "hour" and "hours". */
+#window-unit {
+  min-width: 4.5rem;
 }
 
 section > * + * {

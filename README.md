@@ -113,7 +113,8 @@ Every page, fragment and `GET /<command>` takes a time window: `unit` (`minute`,
 `day`) and `count` (1 to 60 minutes, 24 hours or 100 days; default: 60 minutes). It counts
 whole Paris buckets, the current one included: "3 hours" at 14:20 starts at 12:00, and
 "2 days" starts at yesterday's midnight. On the dashboard it is the **Time range** bar: pick
-a unit, drag the slider. The window is kept in the URL and the tab links, so a reload or a
+a unit, then drag the slider or type the number (a typed value applies after a short
+pause, or on Enter, and is clamped to the unit's range). The window is kept in the URL and the tab links, so a reload or a
 tab switch keeps it. Pages forgive a bad window (they clamp it); the JSON API answers `422`.
 
 | Command | Dashboard tab and JSON (`window`: from the logs; the rest: live) |

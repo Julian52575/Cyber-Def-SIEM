@@ -89,7 +89,7 @@ How a page stays live:
    reloads but not restarts. Everything else comes from the logs, for the chosen window.
 2. `GET /ui/ssh?unit=hour&count=3` renders the section into `base.html`.
 3. Every 5 s `live.js` fetches `GET /ui/ssh/fragment?unit=hour&count=3`, the same section
-   template re-rendered on its own, and swaps it in. Moving the slider fetches it at once.
+   template re-rendered on its own, and swaps it in. Moving the slider or typing a number fetches it at once.
 
 Security: sshd usernames are attacker-controlled, so templates are always autoescaped
 and a Content-Security-Policy allows only same-origin scripts, never inline ones. The

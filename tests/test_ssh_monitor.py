@@ -131,5 +131,5 @@ def test_sshd_history_is_read_from_the_saved_mark(tmp_path: Path) -> None:
     assert next(_auth_events(fresh, SshState({}), cfg)).user == "before"
 
     resumed = LogManager("ssh", None)
-    resumed.set_mark(SSHD_LOG, now - 7200)
+    resumed.set_mark(SSHD_LOG, now - 5400)  # between the two lines
     assert next(_auth_events(resumed, SshState({}), cfg)).user == "after"

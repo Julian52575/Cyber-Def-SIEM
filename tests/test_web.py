@@ -379,7 +379,9 @@ def test_page_offers_the_three_window_units_and_keeps_the_window_in_tab_links() 
     for unit, max_ in (("minute", 60), ("hour", 24), ("day", 100)):
         assert f'value="{unit}" data-max="{max_}"' in page
     assert 'value="hour" data-max="24" checked' in page
-    assert 'max="24" value="3"' in page
+    assert 'id="window-slider" min="1" max="24" value="3"' in page
+    # The number field is what the form sends, so typing works without JavaScript.
+    assert 'id="window-count" name="count" min="1" max="24" value="3"' in page
     assert 'href="../ui/ssh?unit=hour&amp;count=3"' in page
     assert "Last 3 hours, since" in page
 
