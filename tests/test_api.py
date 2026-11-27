@@ -97,7 +97,11 @@ def test_api_flag_serves_the_running_command(
 
     def fake_run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
         log = tmp_path / "logs" / "ssh" / "ssh.jsonl"
-        started = [json.loads(line) for line in log.read_text().splitlines()][-1]
+        started = next(
+            r
+            for r in map(json.loads, log.read_text().splitlines())
+            if r["event_name"] == "siem.api.started"
+        )
         url = started["attributes"]["url.full"]
         with urllib.request.urlopen(f"{url}ssh", timeout=5) as res:
             bodies.append(json.load(res))

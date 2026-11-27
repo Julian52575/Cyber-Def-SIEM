@@ -55,7 +55,9 @@ def test_without_configs_it_creates_them_uses_defaults_and_creates_log_folders(
         "siem.log.opened",
         "siem.config.created",
         "siem.config.created",
+        "siem.started",
         "test.ran",
+        "siem.stopped",
     ]
 
 

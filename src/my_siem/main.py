@@ -4,6 +4,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
 
@@ -365,13 +366,32 @@ def main(argv: list[str] | None = None) -> None:
                     f"serving the dashboard at {api.url}/ and the data at {routes}",
                     {"url.full": f"{api.url}/"},
                 )
+        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        for r in running:
+            assert r.out is not None
+            r.out.emit(
+                INFO,
+                "siem.started",
+                f"started watching at {started_at}",
+                {"siem.started_at": started_at},
+            )
+        print(f"my_siem: started watching at {started_at}", file=sys.stderr)
         _run_all(running)
     finally:
         if api is not None:
             api.stop()
+        stopped_at = datetime.now().astimezone().isoformat(timespec="seconds")
         for r in running:
+            if r.out is not None:
+                r.out.emit(
+                    INFO,
+                    "siem.stopped",
+                    f"shut down at {stopped_at}",
+                    {"siem.stopped_at": stopped_at},
+                )
             if r.provider is not None:
                 r.provider.shutdown()
+        print(f"my_siem: shut down at {stopped_at}", file=sys.stderr)
 
 
 if __name__ == "__main__":
