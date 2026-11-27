@@ -34,6 +34,7 @@ from my_siem.telemetry import (
     event_logger,
     make_provider,
 )
+from my_siem.version import VERSION
 
 
 class LiveState(Protocol):
@@ -163,6 +164,7 @@ def build_parsers() -> tuple[
         "Run `my_siem COMMAND --help` for a command's own flags.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     _add_general_flags(parser, with_defaults=True)
     commands = {}
     for name, command in COMMANDS.items():
