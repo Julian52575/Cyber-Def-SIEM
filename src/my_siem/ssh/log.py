@@ -1,6 +1,5 @@
 """SSH authentication events read from sshd's log (auth.log or journald), with their time."""
 
-import gzip
 import json
 import os
 import re
@@ -11,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+
+from my_siem.system_logs import history, read_lines, rotated
 
 
 class AuthKind(StrEnum):
@@ -100,22 +101,6 @@ def parse_line(line: str, now: float | None = None) -> AuthEvent | None:
     return parse_message(header["msg"], int(header["pid"]), now if at is None else at)
 
 
-def rotated(path: Path) -> list[Path]:
-    """`path`'s rotated copies (auth.log.1, auth.log.2.gz...), oldest first."""
-    found = []
-    for p in path.parent.glob(f"{path.name}.*"):
-        n = p.name[len(path.name) + 1 :].removesuffix(".gz")
-        if n.isdigit():
-            found.append((int(n), p))
-    return [p for _, p in sorted(found, reverse=True)]
-
-
-def read_lines(path: Path) -> Iterator[str]:
-    opener = gzip.open if path.suffix == ".gz" else open
-    with opener(path, "rt", encoding="utf-8", errors="replace") as f:
-        yield from f
-
-
 def follow_file(
     path: Path, from_start: bool = False, poll: float = 0.5
 ) -> Iterator[str]:
@@ -155,6 +140,26 @@ def file_events(path: Path, since: float | None) -> Iterator[AuthEvent]:
     yield from _after(map(parse_line, lines), since)
 
 
+def file_history(path: Path, since: float, until: float) -> Iterator[AuthEvent]:
+    """Events of [since, until) from `path` and its rotated copies, not followed."""
+    yield from _within(map(parse_line, history(path, since)), since, until)
+
+
+def journal_history(since: float, until: float) -> Iterator[AuthEvent]:
+    """Events of [since, until) from journald, not followed."""
+    cmd = [
+        "journalctl",
+        f"--since=@{int(since)}",
+        f"--until=@{int(until) + 1}",
+        "--output=json",
+        "_COMM=sshd",
+        "_COMM=sshd-session",
+    ]
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True) as proc:
+        assert proc.stdout is not None
+        yield from _within(map(parse_journal, proc.stdout), since, until)
+
+
 def journal_events(since: float | None) -> Iterator[AuthEvent]:
     """Events from journald, from `since` on (or only new ones), then as they come."""
     start = "--lines=0" if since is None else f"--since=@{int(since)}"
@@ -190,4 +195,12 @@ def _after(
 ) -> Iterator[AuthEvent]:
     for event in events:
         if event is not None and (since is None or event.at > since):
+            yield event
+
+
+def _within(
+    events: Iterator[AuthEvent | None], since: float, until: float
+) -> Iterator[AuthEvent]:
+    for event in events:
+        if event is not None and since <= event.at < until:
             yield event

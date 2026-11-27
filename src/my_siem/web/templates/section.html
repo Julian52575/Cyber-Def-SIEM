@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+    {#- A plain GET form: without JavaScript, "Apply" reloads the page with the window. #}
+    <form id="window" class="card window" method="get" action="">
+      <fieldset class="units">
+        <legend>Time range</legend>
+        {%- for u, label, max in units %}
+        <label><input type="radio" name="unit" value="{{ u }}" data-max="{{ max }}"{% if u == window.unit %} checked{% endif %}> {{ label }}</label>
+        {%- endfor %}
+      </fieldset>
+      <div class="window-count">
+        {#- The number field carries the value, so typing one works without JavaScript too. #}
+        <input type="range" id="window-slider" min="1" max="{{ window.max }}" value="{{ window.count }}" aria-label="Time range length">
+        <label class="window-number">Last
+          <input type="number" id="window-count" name="count" min="1" max="{{ window.max }}" value="{{ window.count }}" required inputmode="numeric">
+          <span id="window-unit">{{ window.unit }}{{ "s" if window.count > 1 }}</span>
+        </label>
+      </div>
+      <noscript><button type="submit">Apply</button></noscript>
+    </form>
+    <section id="panel" data-fragment="{{ root }}ui/{{ current }}/fragment" data-every="{{ every_ms }}">
+      {{ fragment }}
+    </section>
+{%- endblock %}

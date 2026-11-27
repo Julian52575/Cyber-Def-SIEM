@@ -25,8 +25,12 @@ class Layout:
     def command_config(self, command: str) -> Path:
         return self.root / "config" / command / CONFIG_FILE
 
+    @property
+    def logs(self) -> Path:
+        return self.root / "logs"
+
     def log_dir(self, command: str) -> Path:
-        return self.root / "logs" / command
+        return self.logs / command
 
 
 @dataclass(frozen=True)

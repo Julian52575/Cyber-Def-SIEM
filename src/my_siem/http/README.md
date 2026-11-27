@@ -58,6 +58,20 @@ A request that matches any rule is logged at `WARN` and raises
 `request_threshold` requests raise `http_request_flood`, and `error_threshold` 4xx
 responses raise `http_error_scan`.
 
+## Importing past requests (admin tab)
+
+The admin tab's log importer can read the web server's access log instead of the wire
+(`access_log.py`): nginx's and Apache's "combined" format, or "common", from `access_log`
+(`"auto"`: `/var/log/nginx/access.log`, else `/var/log/apache2/access.log`, else
+`/var/log/httpd/access_log`) and its rotated copies. Each line becomes a request and its
+response, through `HttpWatcher`, so the same rules and alerts apply. The log has the
+client's address but not its port, nor the server's address and port: those attributes
+are left out. The `Host` header is not in these formats either.
+
+The sniffer and the access log see the same requests, but not alike (ports, timing), so
+they cannot be matched one by one: an hour in which `http` already logged live requests
+is skipped whole.
+
 ## What it can't see
 
 - Anything inside TLS: use `https`, or the web server's own logs.

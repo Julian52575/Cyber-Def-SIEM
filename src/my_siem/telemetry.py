@@ -26,7 +26,7 @@ WARN = SeverityNumber.WARN
 ERROR = SeverityNumber.ERROR
 
 
-def _dumps(data: dict[str, Any]) -> str:
+def dumps(data: dict[str, Any]) -> str:
     return json.dumps(data, separators=(",", ":"), default=repr)
 
 
@@ -34,7 +34,7 @@ def record_json(record: ReadableLogRecord, with_resource: bool = False) -> str:
     data = record_dict(record)
     if with_resource:
         data["resource"] = json.loads(record.resource.to_json())
-    return _dumps(data)
+    return dumps(data)
 
 
 def record_dict(record: ReadableLogRecord) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def record_dict(record: ReadableLogRecord) -> dict[str, Any]:
 
 def resource_json(resource: Resource) -> str:
     """The line naming who wrote the records below it."""
-    return _dumps({"resource": json.loads(resource.to_json())})
+    return dumps({"resource": json.loads(resource.to_json())})
 
 
 class JsonLinesExporter(LogRecordExporter):

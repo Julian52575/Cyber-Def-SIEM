@@ -129,6 +129,30 @@ def _open_append(path: Path) -> tuple[IO[str], bool]:
     return out, resumed
 
 
+def add_to_closed_hour(folder: Path, command: str, hour: int, lines: bytes) -> Path:
+    """Add JSON lines to a closed hour: to its plain file while it is not gzipped yet,
+    else as one more gzip member. Call with the writer's `maintenance` lock held."""
+    plain = folder / log_name(command, hour)
+    if plain.exists():
+        out, _ = _open_append(plain)
+        with out:
+            out.write(lines.decode())
+        return plain
+    gz = plain.with_name(plain.name + ".gz")
+    tmp = gz.with_name(gz.name + ".tmp")
+    # Rewritten aside then renamed: a crash mid-write must not leave a truncated member.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
+    with os.fdopen(fd, "wb") as dst:
+        try:
+            with gz.open("rb") as src:
+                shutil.copyfileobj(src, dst)
+        except FileNotFoundError:
+            pass
+        dst.write(gzip.compress(lines, mtime=0))
+    os.replace(tmp, gz)
+    return gz
+
+
 def _ends_with_newline(path: Path) -> bool:
     with path.open("rb") as f:
         f.seek(-1, os.SEEK_END)
@@ -151,10 +175,12 @@ class HourlyLogExporter(LogRecordExporter):
     ) -> None:
         self.folder = folder
         self._command = command
-        self._retention = retention
+        self.retention = retention
         self._clock = clock
         self._lock = threading.Lock()
-        self._sweeping = threading.Lock()
+        # Held by a sweep, and by anything else rewriting closed hours (the log import).
+        self.maintenance = threading.Lock()
+        self.last_sweep: float | None = None
         folder.mkdir(parents=True, exist_ok=True)
         self._hour = hour_start(clock())
         self.path = folder / log_name(command, self._hour)
@@ -190,12 +216,13 @@ class HourlyLogExporter(LogRecordExporter):
 
     def _sweep_once(self, current: int, now: float) -> None:
         # Hours rarely change faster than a sweep ends; if they do, the next one catches up.
-        if not self._sweeping.acquire(blocking=False):
+        if not self.maintenance.acquire(blocking=False):
             return
         try:
-            self._retention.sweep(self.folder, self._command, current, now)
+            self.retention.sweep(self.folder, self._command, current, now)
+            self.last_sweep = self._clock()
         finally:
-            self._sweeping.release()
+            self.maintenance.release()
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         with self._lock:

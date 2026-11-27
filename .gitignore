@@ -21,10 +21,10 @@ result-*
 *.log
 
 # Runtime config auto written
-config/
+/config/
 
 # Runtime logs written by `my_siem --path .`
-logs/
+/logs/
 
 # Local course material, never pushed
 no_push/

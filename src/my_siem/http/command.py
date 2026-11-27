@@ -11,10 +11,13 @@ from scapy.packet import Packet
 
 from my_siem.config import Fields
 from my_siem.detect import RateDetector, raise_alert, rate_alert
+from my_siem.http.access_log import AUTO, parse_access_line, resolve_access_log
 from my_siem.http.wire import HttpRequest, match_rules, parse_request, parse_response
 from my_siem.live import RECENT, ConnState, iso
 from my_siem.logs import LogManager, event_keys
+from my_siem.logs.importer import Source
 from my_siem.net import ConnTracker, ip_of, parse_ports, ports_from_json, run_sniffer
+from my_siem.system_logs import history
 from my_siem.telemetry import INFO, WARN, EventLogger
 
 
@@ -27,11 +30,15 @@ class HttpConfig:
     request_threshold: int = 100
     error_threshold: int = 20
     window: float = 60.0
+    # Read only by the log import: "auto" (nginx's, else Apache's) or a file path.
+    access_log: str = AUTO
 
     def __post_init__(self) -> None:
         for name in ("request_threshold", "error_threshold", "window"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name!r} must be positive")
+        if not self.access_log:
+            raise ValueError("'access_log' cannot be empty")
 
     @classmethod
     def from_json(cls, f: Fields) -> "HttpConfig":
@@ -42,6 +49,7 @@ class HttpConfig:
             request_threshold=f.get("request_threshold", int, d.request_threshold),
             error_threshold=f.get("error_threshold", int, d.error_threshold),
             window=f.get("window", float, d.window),
+            access_log=f.get("access_log", str, d.access_log),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -51,7 +59,13 @@ class HttpConfig:
             "request_threshold": self.request_threshold,
             "error_threshold": self.error_threshold,
             "window": self.window,
+            "access_log": self.access_log,
         }
+
+
+# (address, port): an access log knows neither the client's port nor the server.
+type Client = tuple[str, int | None]
+type Endpoint = tuple[str | None, int | None]
 
 
 def status_class(status: int) -> str:
@@ -68,8 +82,8 @@ class HttpState(ConnState):
     def request(
         self,
         req: HttpRequest,
-        client: tuple[str, int],
-        server: tuple[str, int],
+        client: Client,
+        server: Endpoint,
         rules: list[str],
         at: float,
     ) -> None:
@@ -147,8 +161,8 @@ class HttpWatcher:
     def report_request(
         self,
         req: HttpRequest,
-        client: tuple[str, int],
-        server: tuple[str, int],
+        client: Client,
+        server: Endpoint,
         now: float,
     ) -> None:
         rules = match_rules(req)
@@ -156,7 +170,7 @@ class HttpWatcher:
         self.out.emit(
             WARN if rules else INFO,
             "siem.http.request",
-            f"{req.method} {req.target} from {client[0]}:{client[1]}",
+            f"{req.method} {req.target} from {_addr(client)}",
             {
                 **_endpoints(client, server),
                 "http.request.method": req.method,
@@ -194,15 +208,15 @@ class HttpWatcher:
     def report_response(
         self,
         status: int,
-        client: tuple[str, int],
-        server: tuple[str, int],
+        client: Client,
+        server: Endpoint,
         now: float,
     ) -> None:
         self.state.response(status)
         self.out.emit(
             WARN if status >= 400 else INFO,
             "siem.http.response",
-            f"{status} to {client[0]}:{client[1]}",
+            f"{status} to {_addr(client)}",
             {**_endpoints(client, server), "http.response.status_code": status},
             now,
         )
@@ -219,7 +233,11 @@ class HttpWatcher:
             )
 
 
-def _endpoints(client: tuple[str, int], server: tuple[str, int]) -> dict[str, Any]:
+def _addr(end: Client) -> str:
+    return end[0] if end[1] is None else f"{end[0]}:{end[1]}"
+
+
+def _endpoints(client: Client, server: Endpoint) -> dict[str, Any]:
     return {
         "client.address": client[0],
         "client.port": client[1],
@@ -246,10 +264,22 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--error-threshold", type=int, help="4xx responses to one IP that alert"
     )
     parser.add_argument("--window", type=float, help="alert window in seconds")
+    parser.add_argument(
+        "--access-log",
+        metavar="PATH",
+        help='web server access log the log import reads (default: "auto")',
+    )
 
 
 def apply_flags(cfg: HttpConfig, args: argparse.Namespace) -> HttpConfig:
-    names = ("ports", "interface", "request_threshold", "error_threshold", "window")
+    names = (
+        "ports",
+        "interface",
+        "request_threshold",
+        "error_threshold",
+        "window",
+        "access_log",
+    )
     return replace(
         cfg, **{n: getattr(args, n) for n in names if getattr(args, n) is not None}
     )
@@ -281,4 +311,28 @@ def run(logs: LogManager, cfg: HttpConfig, state: HttpState) -> None:
         cfg.interface,
         cfg.ports,
         lambda pkt: watcher.handle(pkt, float(pkt.time)),
+    )
+
+
+def import_source(cfg: HttpConfig) -> Source:
+    """Past requests read from the web server's access log, for the log import."""
+    path = resolve_access_log(cfg.access_log)
+
+    def replay(out: EventLogger, since: float, until: float) -> None:
+        watcher = HttpWatcher(out, new_state(cfg), cfg)
+        server: Endpoint = (None, None)
+        for line in history(path, since):
+            entry = parse_access_line(line)
+            if entry is None or not since <= entry.at < until:
+                continue
+            client: Client = (entry.client_ip, None)
+            watcher.report_request(entry.request, client, server, entry.at)
+            watcher.report_response(entry.status, client, server, entry.at)
+
+    return Source(
+        where=str(path),
+        replay=replay,
+        kinds=("siem.http.request", "siem.http.response", "siem.alert.http_"),
+        alert_window=cfg.window,
+        skip_watched_hours=True,
     )

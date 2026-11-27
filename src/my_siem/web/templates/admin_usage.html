@@ -1,0 +1,39 @@
+<div class="card" id="usage">
+  <div class="card-head">
+    <h3>Log size</h3>
+    {#- A link, so it rescans by reloading without JavaScript; admin.js swaps the card in place. #}
+    <a class="button" id="usage-rescan" href="{{ root }}ui/admin?{{ query }}" data-fragment="{{ root }}ui/admin/usage">Rescan</a>
+  </div>
+  {%- if log_root is none %}
+  <p class="empty">Log files are off (<code>--no-log</code>): nothing is written to disk.</p>
+  {%- else %}
+  <p class="muted card-note">Each folder of <code>{{ log_root }}</code>, scanned {{ scanned | clock }}. Retention caps a command's log files at {{ cap }}; <code>rollup.json</code> is not counted.</p>
+  {%- if not folders %}
+  <p class="empty">No log folder yet.</p>
+  {%- else %}
+  <table>
+    <thead><tr><th>Folder</th><th>Files</th><th>Current and unzipped hours</th><th>Gzipped</th><th>Other</th><th>Total</th><th>Of the cap</th><th>Oldest hour</th><th>Newest hour</th></tr></thead>
+    <tbody>
+      {%- for f in folders %}
+      <tr>
+        <td><code>{{ f.name }}</code></td>
+        <td class="num">{{ f.files }}</td>
+        <td class="num">{{ f.plain }}</td>
+        <td class="num">{{ f.gz }}</td>
+        <td class="num">{{ f.other }}</td>
+        <td class="num"><strong>{{ f.total }}</strong></td>
+        <td>
+          {%- if f.share is not none %}
+          <meter min="0" max="1" low="0.75" high="0.9" optimum="0" value="{{ f.share }}" aria-label="{{ f.name }} log files, share of the cap"></meter> {{ f.share_text }}
+          {%- else %}–{% endif %}
+        </td>
+        <td>{{ f.oldest }}</td>
+        <td>{{ f.newest }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+    <tfoot><tr><th>All</th><td class="num">{{ all.files }}</td><td class="num">{{ all.plain }}</td><td class="num">{{ all.gz }}</td><td class="num">{{ all.other }}</td><td class="num"><strong>{{ all.total }}</strong></td><td colspan="3"></td></tr></tfoot>
+  </table>
+  {%- endif %}
+  {%- endif %}
+</div>

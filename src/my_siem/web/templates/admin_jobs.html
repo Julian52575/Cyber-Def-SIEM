@@ -1,0 +1,21 @@
+<p class="muted updated">Updated {{ updated | clock }}</p>
+<div class="card">
+  <h3>Scheduled jobs</h3>
+  <p class="muted card-note">What each service runs on its own, and when it is next due.</p>
+  <table>
+    <thead><tr><th>Service</th><th>Job</th><th>Next due</th><th>Last run</th><th>Schedule</th></tr></thead>
+    <tbody>
+      {%- for j in jobs %}
+      <tr>
+        <td>{{ j.service }}</td>
+        <td class="wrap">{{ j.name }}{% if j.state %} <span class="badge {{ state_badges[j.state] }}">{{ j.state }}</span>{% endif %}</td>
+        <td>{{ j.next }}</td>
+        <td>{{ j.last }}</td>
+        <td class="wrap muted">{{ j.schedule }}</td>
+      </tr>
+      {%- else %}
+      <tr><td colspan="5" class="empty">No scheduled job.</td></tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</div>

@@ -74,11 +74,13 @@ the section's fragment, and they still show the data as of the page load without
 
 | File                  | Role |
 | --------------------- | ---- |
-| `__init__.py`         | `Dashboard`: one tab per running command, the routes (`/`, `/ui/<command>`, `/ui/<command>/fragment`, each taking the window as `unit` and `count`), a `History` sampler for each section that keeps one, and the security headers. |
+| `__init__.py`         | `Dashboard`: one tab per running command then the admin tab, the routes (`/`, `/ui/<command>`, `/ui/<command>/fragment`, each taking the window as `unit` and `count`; `/ui/admin` and its fragments), a `History` sampler for each section that keeps one, and the security headers. |
+| `admin.py`            | `AdminPanel`: the scheduled jobs of each `LogManager` (the samplers' are added by `Dashboard.jobs`), the scan of the log folders, and the `Importer`. The JSON routes under `/admin/` are in `api.py`. |
 | `sections.py`         | `SECTIONS`, one `Section` per command: `context()` turns a snapshot, its live samples and a `View` (the window, read through the command's `LogManager`) into template values; `metrics()`, if set, picks what the sampler keeps for the live charts. Also holds the formatting helpers. |
 | `charts.py`           | Chart geometry in Python (line paths, ticks, bars, the flow diagram), so the templates only place what they are given. |
-| `templates/`          | `base.html` (page shell and tabs), `_charts.html` (chart macros), one template per section. |
+| `templates/`          | `base.html` (page shell and tabs), `section.html` (a command's tab: time range bar and panel), `_charts.html` (chart macros), one template per section; `admin.html` and its `admin_jobs.html` (polled) and `admin_usage.html` parts. |
 | `static/live.js`      | Polls the section's fragment for the chosen window and swaps it in, keeping open `<details>` open; drives the time range bar and keeps it in the URL and tab links. |
+| `static/admin.js`     | The log import: estimate, confirm in a `<dialog>`, start it, then follow it every second. Also swaps a rescanned log size card in. Everything from the server is set as text. |
 | `static/style.css`    | Theme tokens (light and dark) and layout. |
 
 How a page stays live:
@@ -94,7 +96,10 @@ How a page stays live:
 Security: sshd usernames are attacker-controlled, so templates are always autoescaped
 and a Content-Security-Policy allows only same-origin scripts, never inline ones. The
 server answers only to `api_allowed_hosts` (against DNS rebinding) and refuses every
-method but `GET` and `HEAD`.
+method but `GET` and `HEAD`, except `POST /admin/import` (`WRITE_ROUTES` in `api.py`).
+That one needs a JSON body and, from a browser, an `Origin` naming one of the allowed
+hosts (`_cross_site`): a form or a script on another site cannot send either, so it
+cannot start an import (CSRF).
 
 ## `logs/`: where events are written and read back
 
@@ -110,6 +115,7 @@ to resume a source); the API and dashboard only call `counts(window)` and
 | `rollup.py`   | `Rollup` keeps the counts per minute, hour and day (60, 24 and 100 buckets) and the sources' marks, saved together to `rollup.json`. |
 | `reader.py`   | `FileReader` reads records back, newest first, from the hourly files that overlap a window: a gzipped hour is parsed once, the live one from where the last read stopped, and lines are skipped on their event name before any JSON parsing. `MemoryReader` does the same from memory. |
 | `window.py`   | `Window`: the last N minutes, hours or days, in whole Paris buckets. |
+| `importer.py` | The admin tab's log import. A command's `Source` replays the host's own logs over a span through an `EventLogger` whose records are collected, not logged; `import_logs` drops those already in the files (`_Logged`), then adds the rest to their closed hours (`add_to_closed_hour` in `files.py`, holding the writer's `maintenance` lock so a sweep cannot gzip the hour meanwhile) and to the counts. With `write` off, it only measures. `Importer` runs one import at a time, in a thread. |
 
 ## Adding a command
 
@@ -118,7 +124,9 @@ to resume a source); the API and dashboard only call `counts(window)` and
    `apply_flags`, and a `run(logs, cfg, state)` that blocks for as long as the command
    works and logs each event with `logs.out.emit`. If the dashboard should break events
    down by an attribute, add a `count_keys` like `dummy`'s.
-2. Register it in `COMMANDS` in `main.py`, with its `count_keys` if any.
+2. Register it in `COMMANDS` in `main.py`, with its `count_keys` if any. If the host
+   keeps logs of what it watches, give it a `source(cfg)` returning a `logs.importer.Source`
+   (see `import_source` in `ssh/monitor.py`), and the admin tab can import them.
 3. Give it a tab: write a `context(snapshot, samples, view)` function in
    `web/sections.py`, reading the window from `view` (`total`, `per_bucket`, `faceted`,
    `recent`), add a template in `web/templates/` that imports `_charts.html`, and register

@@ -43,6 +43,7 @@ class Rollup:
         self._lock = threading.Lock()
         self._tiers: dict[str, dict[int, Counter[str]]] = {name: {} for name in TIERS}
         self._marks: dict[str, float] = {}
+        self.saved_at: float | None = None
         self._saved_minute = TIERS["minute"].start(clock())
 
     def add(self, keys: Mapping[str, int], at: float) -> None:
@@ -128,6 +129,7 @@ class Rollup:
             with os.fdopen(fd, "w", encoding="utf-8") as out:
                 json.dump(data, out, separators=(",", ":"))
             os.replace(tmp, self.path)
+            self.saved_at = self._clock()
         except OSError as e:
             # Counts stay in memory and the next minute retries; events must not stop.
             print(f"my_siem: warning: cannot save {self.path}: {e}", file=sys.stderr)

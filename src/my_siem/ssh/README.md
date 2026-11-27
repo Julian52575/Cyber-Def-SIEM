@@ -98,3 +98,13 @@ seen.
 The network side catches what the logs miss: sshd in a container or on another machine
 whose traffic crosses this interface, and scans that close the connection before sshd
 logs anything.
+
+## Importing past logs (admin tab)
+
+The admin tab's log importer re-reads the same source for a span of closed hours, with
+no following (`file_history`: the file and its rotated copies; `journal_history`:
+`journalctl --since --until`). Each event goes through `report_auth` with a fresh state
+and detector (`import_source` in `monitor.py`), so it is logged and alerted on as it
+would have been live. Lines the running command already read are logged with the same
+time and message, so the import recognizes them and writes only what is missing.
+

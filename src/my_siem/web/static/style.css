@@ -665,3 +665,176 @@ th {
 .help-body li code {
   overflow-wrap: anywhere;
 }
+
+/* Admin tab */
+
+.tabs .tab-admin {
+  margin-left: auto;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.card-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.admin-static > * + * {
+  margin-top: 1rem;
+}
+
+section.admin-static {
+  margin-top: 1rem;
+}
+
+td.num {
+  text-align: right;
+}
+
+tfoot th,
+tfoot td {
+  border-bottom: 0;
+}
+
+meter {
+  width: 5rem;
+  vertical-align: middle;
+}
+
+.button,
+.import-form button,
+dialog button {
+  display: inline-block;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+
+.button:hover,
+.import-form button:hover,
+dialog button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.import-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.import-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.import-commands legend,
+.import-form .units legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.import-form label {
+  cursor: pointer;
+}
+
+.import-form .units {
+  align-items: center;
+}
+
+#import-count {
+  width: 4.5rem;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--page);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+}
+
+#import-count:invalid {
+  border-color: var(--critical);
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#import-progress {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+#import-progress h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+#import-confirm {
+  width: min(52rem, calc(100vw - 2rem));
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  overflow-x: auto;
+}
+
+#import-confirm::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.warnings {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.warnings li + li {
+  margin-top: 0.25rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* Source paths can be long: let them wrap rather than push the numbers out of view. */
+#import-confirm td.wrap,
+#import-progress td.wrap {
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}

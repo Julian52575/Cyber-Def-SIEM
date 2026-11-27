@@ -15,11 +15,22 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, PackageLoader
 from markupsafe import Markup
 
+from my_siem.clock import local
 from my_siem.logs import DEFAULT_WINDOW, LogManager, Window
+from my_siem.logs.importer import UNITS, Importer
 from my_siem.logs.window import TIERS
 from my_siem.version import VERSION
+from my_siem.web.admin import AdminPanel, FolderUsage, Job
 from my_siem.web.help import command_help
-from my_siem.web.sections import SECTIONS, Metrics, Section, View, fmt_clock
+from my_siem.web.sections import (
+    SECTIONS,
+    Metrics,
+    Section,
+    View,
+    fmt_bytes,
+    fmt_clock,
+    fmt_duration,
+)
 
 type Snapshot = Callable[[], dict[str, Any]]
 
@@ -94,18 +105,65 @@ def ui_window(unit: str | None, count: int | None) -> Window:
     return Window(unit, keep if count is None else min(max(count, 1), keep))
 
 
+STATE_BADGES = {
+    "running": "badge-warning",
+    "done": "badge-good",
+    "failed": "badge-critical",
+}
+
+
+def fmt_when(at: float | None, now: float) -> str:
+    """Paris time, with the date when not today, and how far from now."""
+    if at is None:
+        return "–"
+    t = local(at)
+    day = "" if t.date() == local(now).date() else t.strftime("%a %d %b ")
+    delta = at - now
+    if abs(delta) < 1:
+        rel = "now"
+    elif delta > 0:
+        rel = f"in {fmt_duration(delta)}"
+    else:
+        rel = f"{fmt_duration(-delta)} ago"
+    return f"{day}{t:%H:%M:%S} ({rel})"
+
+
+def _hour(at: int | None) -> str:
+    return "–" if at is None else local(at).strftime("%a %d %b %H:00")
+
+
+def _usage_row(name: str, folders: list[FolderUsage]) -> dict[str, Any]:
+    cap = folders[0].cap_bytes if len(folders) == 1 else None
+    share = sum(f.log_bytes for f in folders) / cap if cap else None
+    return {
+        "name": name,
+        "files": f"{sum(f.log_files for f in folders):,}",
+        "plain": fmt_bytes(sum(f.plain_bytes for f in folders)),
+        "gz": fmt_bytes(sum(f.gz_bytes for f in folders)),
+        "other": fmt_bytes(sum(f.other_bytes for f in folders)),
+        "total": fmt_bytes(sum(f.total_bytes for f in folders)),
+        "share": None if share is None else min(share, 1.0),
+        "share_text": None if share is None else f"{share:.0%}",
+        "oldest": _hour(min((f.oldest for f in folders if f.oldest), default=None)),
+        "newest": _hour(max((f.newest for f in folders if f.newest), default=None)),
+    }
+
+
 class Dashboard:
-    """One tab per running command, in the order the commands were given."""
+    """One tab per running command, in the order the commands were given, then the
+    admin tab."""
 
     def __init__(
         self,
         snapshots: Mapping[str, Snapshot],
         logs: Mapping[str, LogManager],
         every: float,
+        admin: AdminPanel | None = None,
     ) -> None:
         self.every = every
         self._snapshots = dict(snapshots)
         self._logs = dict(logs)
+        self.admin = admin or AdminPanel(logs, Importer(logs, {}), None, None)
         self.sections = [SECTIONS[name] for name in snapshots]
         self.histories = {
             s.id: History(snapshots[s.id], s.metrics)
@@ -141,6 +199,23 @@ class Dashboard:
             **ctx, updated=time.time(), window=view.describe()
         )
 
+    def _layout(
+        self, root: str, window: Window, theme: str | None, current: str
+    ) -> dict[str, Any]:
+        """What every page's top bar and tabs need. `root` leads from the page back to
+        the app root, so the links survive a proxy that mounts the app under a prefix."""
+        return {
+            "root": root,
+            "theme": theme if theme in THEMES else THEMES[0],
+            "commands": list(self._snapshots),
+            "sections": self.sections,
+            "current": current,
+            "every_ms": int(self.every * 1000),
+            "poll_choices": POLL_CHOICES,
+            # The admin tab has no window, but keeps it for the tabs it links back to.
+            "query": urlencode(window.to_json()),
+        }
+
     def page(
         self,
         section_id: str,
@@ -148,22 +223,79 @@ class Dashboard:
         window: Window,
         theme: str | None = None,
     ) -> HTMLResponse:
-        """`root` leads from the page back to the app root, so the links survive a
-        proxy that mounts the app under a prefix."""
         section = self._section(section_id)
-        html = _env.get_template("base.html").render(
-            root=root,
-            theme=theme if theme in THEMES else THEMES[0],
-            commands=list(self._snapshots),
-            sections=self.sections,
-            section=section,
-            every_ms=int(self.every * 1000),
-            poll_choices=POLL_CHOICES,
+        html = _env.get_template("section.html").render(
+            **self._layout(root, window, theme, section.id),
+            title=section.title,
             window=window,
             units=[(u, label, TIERS[u].keep) for u, label in UNIT_LABELS.items()],
-            query=urlencode(window.to_json()),
             fragment=Markup(self.fragment(section, window)),
             help=self.helps[section.id],
+        )
+        return HTMLResponse(html, headers=UI_HEADERS)
+
+    # --- admin tab ----------------------------------------------------------
+
+    def jobs(self, now: float) -> list[Job]:
+        """Every service's scheduled jobs, the soonest due first."""
+        jobs = self.admin.jobs(now)
+        for s in self.sections:
+            history = self.histories.get(s.id)
+            if history is not None:
+                last = history.samples[-1][0] if history.samples else None
+                jobs.append(
+                    Job(
+                        f"Dashboard ({s.id})",
+                        "Sample active connections for the live chart",
+                        f"every {self.every:g} s, on the clock",
+                        last,
+                        (now // self.every + 1) * self.every,
+                    )
+                )
+        return sorted(jobs, key=lambda j: (j.next is None, j.next or 0.0))
+
+    def admin_fragment(self) -> str:
+        now = time.time()
+        rows = [
+            {
+                **j.to_json(),
+                "last": fmt_when(j.last, now),
+                "next": fmt_when(j.next, now),
+            }
+            for j in self.jobs(now)
+        ]
+        return _env.get_template("admin_jobs.html").render(
+            jobs=rows, updated=now, state_badges=STATE_BADGES
+        )
+
+    def usage_card(self, root: str, window: Window) -> str:
+        folders = self.admin.usage()
+        retention = self.admin.retention
+        return _env.get_template("admin_usage.html").render(
+            root=root,
+            query=urlencode(window.to_json()),
+            log_root=self.admin.log_root,
+            scanned=time.time(),
+            cap=fmt_bytes(retention.max_size_mb * 1024 * 1024) if retention else "–",
+            folders=[_usage_row(f.name, [f]) for f in folders],
+            all=_usage_row("All", folders),
+        )
+
+    def admin_page(
+        self, root: str, window: Window, theme: str | None = None
+    ) -> HTMLResponse:
+        importer = self.admin.importer
+        html = _env.get_template("admin.html").render(
+            **self._layout(root, window, theme, "admin"),
+            title="Admin",
+            help=None,
+            fragment=Markup(self.admin_fragment()),
+            usage=Markup(self.usage_card(root, window)),
+            log_root=self.admin.log_root,
+            sources=[
+                {"name": name, "where": s.where} for name, s in importer.sources.items()
+            ],
+            units=[(u, UNIT_LABELS[u], importer.max_count(u)) for u in UNITS],
         )
         return HTMLResponse(html, headers=UI_HEADERS)
 
@@ -194,7 +326,29 @@ class Dashboard:
                 html, headers={"Cache-Control": "no-store", **UI_HEADERS}
             )
 
+        def admin(
+            theme: ThemeCookie = None, unit: UnitQuery = None, count: CountQuery = None
+        ) -> HTMLResponse:
+            return self.admin_page("../", ui_window(unit, count), theme)
+
+        def admin_fragment() -> HTMLResponse:
+            return HTMLResponse(
+                self.admin_fragment(),
+                headers={"Cache-Control": "no-store", **UI_HEADERS},
+            )
+
+        def usage(unit: UnitQuery = None, count: CountQuery = None) -> HTMLResponse:
+            # Relative to the page that swaps it in, /ui/admin.
+            html = self.usage_card("../", ui_window(unit, count))
+            return HTMLResponse(
+                html, headers={"Cache-Control": "no-store", **UI_HEADERS}
+            )
+
         r.add_api_route("/", index, methods=["GET"])
+        # Before /ui/{section_id}, which would take "admin" for a command.
+        r.add_api_route("/ui/admin", admin, methods=["GET"])
+        r.add_api_route("/ui/admin/fragment", admin_fragment, methods=["GET"])
+        r.add_api_route("/ui/admin/usage", usage, methods=["GET"])
         r.add_api_route("/ui/{section_id}", section, methods=["GET"])
         r.add_api_route("/ui/{section_id}/fragment", fragment, methods=["GET"])
         return r

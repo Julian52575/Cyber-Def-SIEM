@@ -13,6 +13,7 @@ from my_siem.clock import local
 from my_siem.config import Fields
 from my_siem.detect import RateDetector, rate_alert
 from my_siem.logs import LONGEST, LogManager
+from my_siem.logs.importer import Source
 from my_siem.net import (
     ConnEvent,
     ConnKind,
@@ -21,7 +22,14 @@ from my_siem.net import (
     ports_from_json,
     run_sniffer,
 )
-from my_siem.ssh.log import AuthEvent, AuthKind, file_events, journal_events
+from my_siem.ssh.log import (
+    AuthEvent,
+    AuthKind,
+    file_events,
+    file_history,
+    journal_events,
+    journal_history,
+)
 from my_siem.ssh.state import SshState
 from my_siem.telemetry import ERROR, INFO, WARN, EventLogger
 
@@ -209,6 +217,32 @@ def _run_logs(logs: LogManager, state: SshState, cfg: SshMonitorConfig) -> None:
             f"cannot read sshd logs: {e}",
             {"siem.source": "sshd_log", "error.type": type(e).__name__},
         )
+
+
+def import_source(cfg: SshMonitorConfig) -> Source:
+    """sshd's past logins, read again from where `auth_log` points, for the log import."""
+    path = resolve_auth_log(cfg.auth_log)
+
+    def replay(out: EventLogger, since: float, until: float) -> None:
+        state = new_state(cfg)
+        failures = RateDetector(cfg.fail_threshold, cfg.window)
+        events = (
+            journal_history(since, until)
+            if path is None
+            else file_history(path, since, until)
+        )
+        for event in events:
+            report_auth(out, state, event, failures)
+
+    return Source(
+        where=str(path or JOURNALD),
+        replay=replay,
+        kinds=(
+            *(f"siem.ssh.{kind}" for kind in AuthKind),
+            "siem.alert.ssh_bruteforce",
+        ),
+        alert_window=cfg.window,
+    )
 
 
 def _run_sniffer(logs: LogManager, state: SshState, cfg: SshMonitorConfig) -> None:

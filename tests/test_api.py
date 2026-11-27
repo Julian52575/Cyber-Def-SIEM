@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
 from my_siem import main as cli
-from my_siem.api import ApiServer, create_app
+from my_siem.api import WRITE_ROUTES, ApiServer, create_app
 from my_siem.detect import RateDetector
 from my_siem.logs import LogManager
 from my_siem.logs.files import list_logs
@@ -71,11 +71,14 @@ def test_healthz_only_answers_allowed_hosts() -> None:
     assert rebound.status_code == 400
 
 
-def test_every_route_is_read_only() -> None:
+def test_every_route_is_read_only_but_the_import() -> None:
     app = create_app({"ssh": SshState({}).snapshot}, HOSTS)
 
+    writes = set()
     for route in app.routes:
-        assert getattr(route, "methods", set()) <= {"GET", "HEAD"}, route
+        for method in getattr(route, "methods", set()) - {"GET", "HEAD"}:
+            writes.add((method, getattr(route, "path", None)))
+    assert writes == WRITE_ROUTES
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])

@@ -89,9 +89,10 @@ Run once with `--path .` to get every config file, each key at its default, unde
 
 ### API
 
-With `--api`, my_siem also runs a read-only HTTP server (FastAPI) while it monitors: a
-dashboard rendered by the server, and the same data as JSON. Any method other than `GET`
-or `HEAD` gets `405`, on every path:
+With `--api`, my_siem also runs an HTTP server (FastAPI) while it monitors: a
+dashboard rendered by the server, and the same data as JSON. It is read-only but for
+`POST /admin/import` (see [Admin tab](#admin-tab)): any other method than `GET` or `HEAD`
+gets `405`, on every path:
 
 ```sh
 sudo .venv/bin/my_siem --api
@@ -107,6 +108,12 @@ curl 'localhost:8080/ssh?unit=day&count=7'    # JSON, last 7 days
 | `GET /ui/<command>/fragment` | The tab's content alone, polled by the page every 5 s       |
 | `GET /<command>`        | The command's live state, and what it logged in a window, as JSON (below) |
 | `GET /healthz`          | `{"status": "ok", "commands": ["ssh", "dummy"]}`                |
+| `GET /ui/admin`         | The admin tab (see [Admin tab](#admin-tab))                     |
+| `GET /admin/jobs`       | Every service's scheduled jobs: last run, next due              |
+| `GET /admin/logs`       | Size of each folder under `logs/`                               |
+| `GET /admin/import/estimate?command=ssh&unit=day&count=7` | What an import would read and write, writing nothing |
+| `POST /admin/import`    | Start an import: `{"commands": ["ssh"], "unit": "day", "count": 7}`; `409` while one runs |
+| `GET /admin/import`     | The last import, as it goes (`{"state": "idle"}` before any)    |
 | `GET /docs`             | Interactive OpenAPI docs                                        |
 
 Every page, fragment and `GET /<command>` takes a time window: `unit` (`minute`, `hour` or
@@ -164,6 +171,47 @@ Alongside, `rollup.json` keeps how many events of each name happened per minute 
 whatever the traffic, outlives the raw logs, and is saved every minute and on exit (a crash
 loses at most the last minute). With `--no-log` the counts are kept in memory only.
 
+### Admin tab
+
+The dashboard's last tab, **Admin** (`/ui/admin`), has three parts:
+
+- **Scheduled jobs**: what each service runs on its own, when it last ran and when it is
+  next due, refreshed like the other tabs. Each command's log manager starts a new hourly
+  file and sweeps (gzip, retention) on the first event of each hour, and saves
+  `rollup.json` on the first event of each minute: a quiet command waits for its next
+  event. The dashboard samples active connections every 5 s. A log import shows up too.
+- **Log size**: every folder under `logs/`, running command or not, from the file sizes:
+  files of hours not gzipped yet, gzipped ones, the rest (`rollup.json`, leftovers), and
+  how much of `log_max_size_mb` the log files take. **Rescan** reads the sizes again.
+- **Log importer**: reads the host's own logs again into the commands' log folders. Tick
+  the commands, pick the last N hours (up to 24) or days (up to 100, and no more than
+  `log_max_age_days`), then **Estimate…**: it reads everything and says how many records
+  are new and how much they take gzipped, warning when a folder would pass its size cap.
+  **Import** then runs it in the background. It needs JavaScript and log files.
+
+| Command | Imports from |
+| ------- | ------------ |
+| `ssh`   | sshd's logs, where `auth_log` points: the file and its rotated copies (`auth.log.1`, `auth.log.2.gz`...), or journald |
+| `http`  | The web server's access log, where `access_log` points (nginx's or Apache's combined or common format), and its rotated copies |
+
+Imported lines go through the command's own code, so they are logged, counted and alerted
+on as live ones would be (the alerts of a replay start from a clean slate at the span's
+start). Each imported record carries `siem.import.source`, the file it came from. Only
+closed hours are written, up to the start of the current one: the running command covers
+that one. Each goes into its own hour's file, as one more gzip member, so retention ages it
+like the rest. Records already logged are skipped, so an import can be run again:
+
+- `ssh` reads the same lines as the running command, so a record already logged (by
+  the startup catch-up, or an earlier import) is matched exactly and left out. An alert
+  within `window` seconds of a logged one of the same name and address is that alert.
+- `http`'s live source is the sniffer, which sees the same requests differently (with
+  ports, at another moment): an hour in which `http` already logged requests live is
+  skipped whole, and the estimate says how many were.
+
+Only running commands that write log files can import. Starting an import is the API's
+one write: it must send a JSON body, and a browser's `Origin` must be one of the API's
+own host names, so a page on another site cannot start one.
+
 ### Tracking SSH connections
 
 ```sh
@@ -213,6 +261,7 @@ inside TLS are not seen (see `https`, or the web server's own logs).
 | `request_threshold` | `100`   | Requests from one IP that raise an alert             |
 | `error_threshold`   | `20`    | 4xx responses to one IP that raise an alert          |
 | `window`            | `60`    | Alert window, in seconds                             |
+| `access_log`        | `"auto"` | Access log the [log import](#admin-tab) reads: `"auto"` (nginx's, else Apache's) or a file path |
 
 Alerts:
 
@@ -318,7 +367,8 @@ src/my_siem/   the package (entry point: my_siem.main:main)
   https/       the `https` command: TLS ClientHello parsing, watcher, flags
   net.py       TCP connection tracking and the sniffer, shared by ssh, http and https
   dummy/       the `dummy` command: placeholder data, a template for new commands
-  web/         the dashboard: Jinja2 templates, SVG chart geometry, polled fragments
+  logs/        log files, counts and the reading back of both; the log import
+  web/         the dashboard: Jinja2 templates, SVG chart geometry, polled fragments, admin tab
 config/        configs written when run with --path . (git-ignored)
 logs/          log output when run with --path . (git-ignored)
 tests/         pytest suite

@@ -26,8 +26,10 @@ from my_siem.dummy import command as dummy
 from my_siem.http import command as http
 from my_siem.https import command as https
 from my_siem.logs import CountKeys, LogManager, Retention, event_keys
+from my_siem.logs.importer import Source
 from my_siem.ssh import cli as ssh_cli
 from my_siem.ssh.monitor import SshMonitorConfig, new_state
+from my_siem.ssh.monitor import import_source as ssh_source
 from my_siem.ssh.monitor import run as run_ssh
 from my_siem.telemetry import INFO, WARN, JsonLinesExporter
 from my_siem.version import VERSION
@@ -51,6 +53,8 @@ class Command[C, S: LiveState]:
     run: Callable[[LogManager, C, S], None]
     # What each event adds to the counts the time filters read.
     count_keys: CountKeys = event_keys
+    # Where the admin panel's log import reads its past events, if it can.
+    source: Callable[[C], Source] | None = None
 
 
 COMMANDS: dict[str, Command[Any, Any]] = {
@@ -62,6 +66,7 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         apply_flags=ssh_cli.apply_flags,
         new_state=new_state,
         run=run_ssh,
+        source=ssh_source,
     ),
     "http": Command(
         help="track HTTP requests and responses on the wire",
@@ -72,6 +77,7 @@ COMMANDS: dict[str, Command[Any, Any]] = {
         new_state=http.new_state,
         run=http.run,
         count_keys=http.count_keys,
+        source=http.import_source,
     ),
     "https": Command(
         help="track TLS handshakes (server name, version) on the wire",
@@ -350,6 +356,13 @@ def main(argv: list[str] | None = None) -> None:
                 {r.name: r.state.snapshot for r in running},
                 hosts,
                 logs={r.name: r.logs for r in running if r.logs is not None},
+                sources={
+                    r.name: r.command.source(r.cfg)
+                    for r in running
+                    if r.command.source is not None
+                },
+                log_root=layout.logs if to_file else None,
+                retention=retention,
             )
             try:
                 api = ApiServer(app, host, port)
