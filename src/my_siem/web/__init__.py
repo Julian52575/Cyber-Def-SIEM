@@ -89,9 +89,12 @@ class Dashboard:
         )
         return _env.get_template(section.template).render(**ctx, updated=time.time())
 
-    def page(self, section_id: str) -> HTMLResponse:
+    def page(self, section_id: str, root: str) -> HTMLResponse:
+        """`root` leads from the page back to the app root, so the links survive a
+        proxy that mounts the app under a prefix."""
         section = self._section(section_id)
         html = _env.get_template("base.html").render(
+            root=root,
             commands=list(self._snapshots),
             sections=self.sections,
             section=section,
@@ -119,8 +122,12 @@ class Dashboard:
         r = APIRouter(include_in_schema=False)
         first = self.sections[0].id
         # Served in place, not redirected: a redirect behind a proxy can lose the port.
-        r.add_api_route("/", lambda: self.page(first), methods=["GET"])
-        r.add_api_route("/ui/{section_id}", self.page, methods=["GET"])
+        r.add_api_route("/", lambda: self.page(first, root="./"), methods=["GET"])
+        r.add_api_route(
+            "/ui/{section_id}",
+            lambda section_id: self.page(section_id, "../"),
+            methods=["GET"],
+        )
         r.add_api_route("/ui/{section_id}/stream", self.stream, methods=["GET"])
         return r
 

@@ -2,6 +2,7 @@ import http.client
 import time
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from my_siem.api import ApiServer, create_app
@@ -51,7 +52,22 @@ def test_root_serves_the_first_command_without_redirect() -> None:
     res = client.get("/", follow_redirects=False)
 
     assert res.status_code == 200
-    assert 'data-stream="/ui/ssh/stream"' in res.text
+    assert 'data-stream="./ui/ssh/stream"' in res.text
+
+
+@pytest.mark.parametrize(
+    ("page", "root"),
+    [("/", "./"), ("/ui/ssh", "../"), ("/ui/ssh?root=https://evil/", "../")],
+)
+def test_links_are_relative_so_a_proxy_prefix_works(page: str, root: str) -> None:
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
+
+    html = client.get(page).text
+
+    assert f'href="{root}static/style.css"' in html
+    assert f'src="{root}static/live.js"' in html
+    assert f'href="{root}ui/ssh"' in html
+    assert "evil" not in html
 
 
 def test_ssh_page_shows_the_live_state() -> None:
@@ -60,7 +76,7 @@ def test_ssh_page_shows_the_live_state() -> None:
     res = client.get("/ui/ssh")
 
     assert res.status_code == 200
-    assert 'data-stream="/ui/ssh/stream"' in res.text
+    assert 'data-stream="../ui/ssh/stream"' in res.text
     for shown in (
         "sshd logs",
         "Network sniffer",
@@ -90,16 +106,16 @@ def test_one_tab_per_running_command_in_the_given_order() -> None:
 
     page = client.get("/ui/dummy").text
 
-    assert 'data-stream="/ui/dummy/stream"' in client.get("/").text
-    assert page.index('href="/ui/dummy"') < page.index('href="/ui/ssh"')
-    assert 'data-stream="/ui/dummy/stream"' in page
+    assert 'data-stream="./ui/dummy/stream"' in client.get("/").text
+    assert page.index('href="../ui/dummy"') < page.index('href="../ui/ssh"')
+    assert 'data-stream="../ui/dummy/stream"' in page
     assert "Port scan" in page
 
 
 def test_only_running_commands_have_a_tab() -> None:
     client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
 
-    assert 'href="/ui/dummy"' not in client.get("/ui/ssh").text
+    assert 'href="../ui/dummy"' not in client.get("/ui/ssh").text
     assert client.get("/ui/dummy").status_code == 404
     assert client.get("/dummy").status_code == 404
     assert client.get("/ui/nowhere").status_code == 404

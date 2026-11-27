@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ section.title }} · my_siem</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/live.js" defer></script>
+  <link rel="stylesheet" href="{{ root }}static/style.css">
+  <script src="{{ root }}static/live.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -18,10 +18,10 @@
   <main>
     <nav class="tabs" aria-label="Sections">
       {%- for s in sections %}
-      <a href="/ui/{{ s.id }}"{% if s.id == section.id %} aria-current="page"{% endif %}>{{ s.title }}</a>
+      <a href="{{ root }}ui/{{ s.id }}"{% if s.id == section.id %} aria-current="page"{% endif %}>{{ s.title }}</a>
       {%- endfor %}
     </nav>
-    <section id="panel" data-stream="/ui/{{ section.id }}/stream">
+    <section id="panel" data-stream="{{ root }}ui/{{ section.id }}/stream">
       {{ fragment }}
     </section>
   </main>
