@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 DEFAULT_ROOT = Path("/etc/my_siem")
 CONFIG_FILE = "config.json"
@@ -71,21 +71,37 @@ class Fields:
         return sorted(self._data)
 
 
-def load_config[C](
+class Defaults(Protocol):
+    def to_json(self) -> dict[str, Any]: ...
+
+
+def write_default_config(path: Path, default: Defaults) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # "x": never clobber a file created between the read and this write.
+    with path.open("x", encoding="utf-8") as out:
+        json.dump(default.to_json(), out, indent=2)
+        out.write("\n")
+
+
+def load_config[C: Defaults](
     path: Path,
     from_json: Callable[[Fields], C],
     default: C,
     warnings: list[ConfigWarning],
 ) -> C:
-    """Load `path`, falling back to `default` with a warning when it does not exist."""
+    """Load `path`; when it does not exist, write `default` there and use it."""
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        warnings.append(
-            ConfigWarning(
-                "siem.config.missing", f"no config at {path}, using defaults", path
-            )
-        )
+        try:
+            write_default_config(path, default)
+        except OSError as e:
+            # Still runnable (e.g. no write access to /etc): defaults, not a crash.
+            message = f"no config at {path} and cannot create it ({e}), using defaults"
+            warnings.append(ConfigWarning("siem.config.missing", message, path))
+        else:
+            message = f"no config at {path}, created it with the defaults"
+            warnings.append(ConfigWarning("siem.config.created", message, path))
         return default
     except OSError as e:
         raise ConfigError(f"cannot read {path}: {e}") from e
@@ -122,9 +138,8 @@ class GeneralConfig:
     stdout: bool = False
     log: bool = True
     api: bool = False
-    # Loopback by default: the API exposes users and addresses.
-    api_host: str = "127.0.0.1"
-    api_port: int = 3000
+    api_host: str = "0.0.0.0"
+    api_port: int = 8080
     # Names the browser may use to reach the API; `api_host` is always allowed too.
     api_allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 
@@ -150,3 +165,13 @@ class GeneralConfig:
             api_port=f.get("api_port", int, cls.api_port),
             api_allowed_hosts=hosts,
         )
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "stdout": self.stdout,
+            "log": self.log,
+            "api": self.api,
+            "api_host": self.api_host,
+            "api_port": self.api_port,
+            "api_allowed_hosts": list(self.api_allowed_hosts),
+        }

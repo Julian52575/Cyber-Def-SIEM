@@ -2,7 +2,7 @@
   "stdout": false,
   "log": true,
   "api": false,
-  "api_host": "127.0.0.1",
-  "api_port": 3000,
+  "api_host": "0.0.0.0",
+  "api_port": 8080,
   "api_allowed_hosts": ["localhost", "127.0.0.1", "::1"]
 }

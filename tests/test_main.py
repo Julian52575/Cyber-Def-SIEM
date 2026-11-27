@@ -39,7 +39,7 @@ def records(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def test_without_configs_it_warns_uses_defaults_and_creates_log_folders(
+def test_without_configs_it_creates_them_uses_defaults_and_creates_log_folders(
     tmp_path: Path, ran: list[SshMonitorConfig], capsys: pytest.CaptureFixture[str]
 ) -> None:
     cli.main(["--path", str(tmp_path), "ssh"])
@@ -47,12 +47,14 @@ def test_without_configs_it_warns_uses_defaults_and_creates_log_folders(
     assert ran == [SshMonitorConfig()]
     err = capsys.readouterr().err
     assert err.count("warning: no config at") == 2
+    assert (tmp_path / "config" / "config.json").is_file()
+    assert (tmp_path / "config" / "ssh" / "config.json").is_file()
     log = tmp_path / "logs" / "ssh" / "ssh.jsonl"
     names = [r["event_name"] for r in records(log)]
     assert names == [
         "siem.log.opened",
-        "siem.config.missing",
-        "siem.config.missing",
+        "siem.config.created",
+        "siem.config.created",
         "test.ran",
     ]
 

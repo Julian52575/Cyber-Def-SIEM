@@ -60,8 +60,8 @@ def test_healthz_only_answers_allowed_hosts() -> None:
         create_app({"ssh": SshState({}).snapshot}, ["localhost", "::1"])
     )
 
-    ok = client.get("http://localhost:3000/healthz")
-    v6 = client.get("http://[::1]:3000/healthz")
+    ok = client.get("http://localhost:8080/healthz")
+    v6 = client.get("http://[::1]:8080/healthz")
     rebound = client.get("http://evil.example/healthz")
 
     assert ok.json() == {"status": "ok", "commands": ["ssh"]}

@@ -47,8 +47,8 @@ by side, each with its own config and log file; if one crashes, my_siem stops.
 | `--no-log`    | Do not write events to log files (default: off)                 |
 | `--path PATH` | Root folder of `config/` and `logs/` (default: `/etc/my_siem`)  |
 | `--api`       | Serve a live dashboard and the monitoring data over HTTP (see [API](#api)) |
-| `--api-host HOST` | Address the API listens on (default: `127.0.0.1`)           |
-| `--api-port PORT` | Port the API listens on (default: `3000`)                   |
+| `--api-host HOST` | Address the API listens on (default: `0.0.0.0`)           |
+| `--api-port PORT` | Port the API listens on (default: `8080`)                   |
 
 General flags may go before or after the commands. Command-line flags override the config files.
 
@@ -63,9 +63,10 @@ General flags may go before or after the commands. Command-line flags override t
     └── <command>/<command>.jsonl
 ```
 
-All config files are JSON and optional: a missing file prints a warning and the built-in
-defaults are used. Keys left out of a file keep their default; unknown keys are warned
-about; a malformed file or wrong value type stops my_siem with an error.
+All config files are JSON and optional: a missing file (and its folders) is created with
+the built-in defaults, with a warning, and later runs read it from there. If it cannot be
+created (e.g. no write access), the defaults are used for that run. Keys left out of a
+file keep their default; unknown keys are warned about; a malformed file or wrong value type stops my_siem with an error.
 Examples with every key at its default are in [`config/`](config/).
 
 `config/config.json`:
@@ -75,8 +76,8 @@ Examples with every key at its default are in [`config/`](config/).
 | `stdout` | `false` | Also print events to stdout       |
 | `log`    | `true`  | Write events to the log file      |
 | `api`    | `false` | Serve the API (as `--api`)        |
-| `api_host` | `"127.0.0.1"` | Address the API listens on |
-| `api_port` | `3000`  | Port the API listens on         |
+| `api_host` | `"0.0.0.0"` | Address the API listens on |
+| `api_port` | `8080`  | Port the API listens on         |
 | `api_allowed_hosts` | `["localhost", "127.0.0.1", "::1"]` | Host names the API answers to, besides `api_host` (against DNS rebinding) |
 
 ### API
@@ -87,8 +88,8 @@ or `HEAD` gets `405`, on every path:
 
 ```sh
 sudo .venv/bin/my_siem --api
-xdg-open http://localhost:3000/   # dashboard
-curl localhost:3000/ssh           # JSON
+xdg-open http://localhost:8080/   # dashboard
+curl localhost:8080/ssh           # JSON
 ```
 
 | Endpoint                | Returns                                                         |
@@ -112,9 +113,9 @@ works without JavaScript (it then shows the data as of the page load); with it,
 `static/live.js` swaps in each update from the stream. Chart history is sampled by the
 server every 5 s and kept for 10 minutes, so it survives reloads but not restarts.
 
-The server listens on loopback by default because it exposes users and addresses. To
-reach it from another machine, use `--api-host 0.0.0.0` and add the name or address you
-browse to to `api_allowed_hosts`; other `Host` headers get `400`.
+The server listens on all interfaces by default. It exposes users and addresses, so use
+`--api-host 127.0.0.1` to keep it local. To reach it from another machine, add the name or
+address you browse to to `api_allowed_hosts`; other `Host` headers get `400`.
 
 Log folders are created when missing. An existing log file is appended to, never
 overwritten, so history from earlier runs stays in the same file (the run's first event,
@@ -249,7 +250,7 @@ Attributes use the OTel semantic conventions (`client.address`, `server.port`, `
 | `siem.alert.https_conn_flood`, `.https_legacy_tls`  | ERROR    |
 | `siem.source.started` / `siem.source.failed`        | INFO / ERROR |
 | `siem.log.opened`, `siem.api.started`              | INFO     |
-| `siem.config.missing`, `siem.config.unknown_key`    | WARN     |
+| `siem.config.created`, `siem.config.missing`, `siem.config.unknown_key` | WARN     |
 
 ```sh
 jq 'select(.severity_text == "ERROR")' /etc/my_siem/logs/ssh/ssh.jsonl   # only alerts and failures
