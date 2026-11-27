@@ -115,9 +115,10 @@ class Dashboard:
         return StreamingResponse(
             events(),
             media_type="text/event-stream",
-            # Stops nginx-style proxies from buffering the stream until it ends.
+            # Stop proxies from holding the stream back: X-Accel-Buffering for nginx,
+            # no-transform for compressors like Apache's mod_deflate, which buffer.
             headers={
-                "Cache-Control": "no-store",
+                "Cache-Control": "no-store, no-transform",
                 "X-Accel-Buffering": "no",
                 **UI_HEADERS,
             },
