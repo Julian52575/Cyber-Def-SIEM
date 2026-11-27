@@ -4,16 +4,16 @@ import threading
 import time
 from collections import Counter, deque
 from dataclasses import asdict
-from datetime import UTC, datetime
 from typing import Any
 
+from my_siem.clock import local
 from my_siem.net import Connection, ConnEvent, ConnKind, FlowKey
 
 RECENT = 100
 
 
 def iso(epoch: float) -> str:
-    return datetime.fromtimestamp(epoch, UTC).isoformat()
+    return local(epoch).isoformat()
 
 
 class ConnState:

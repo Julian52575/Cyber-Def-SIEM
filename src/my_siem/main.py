@@ -4,15 +4,17 @@ import argparse
 import queue
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
 
 from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import LogRecordExporter
 
 from my_siem.api import ApiServer, create_app
+from my_siem.clock import local
 from my_siem.config import (
     DEFAULT_ROOT,
     ConfigError,
@@ -26,6 +28,8 @@ from my_siem.config import (
 from my_siem.dummy import command as dummy
 from my_siem.http import command as http
 from my_siem.https import command as https
+from my_siem.logfiles import HourlyLogExporter, Retention
+from my_siem.rollup import Rollup, RollupExporter
 from my_siem.ssh import cli as ssh_cli
 from my_siem.ssh.monitor import SshMonitorConfig, new_state
 from my_siem.ssh.monitor import run as run_ssh
@@ -231,6 +235,7 @@ class Running:
     cfg: Any
     state: Any
     warnings: list[ConfigWarning]
+    rollup: Rollup | None = None
     provider: LoggerProvider | None = None
     out: EventLogger | None = None
     log_file: Path | None = None
@@ -343,16 +348,24 @@ def main(argv: list[str] | None = None) -> None:
 
     # Shared, and locked inside, so concurrent commands never interleave a line.
     stdout = JsonLinesExporter(sys.stdout) if to_stdout else None
+    retention = Retention(general.log_max_age_days, general.log_max_size_mb)
     try:
         for r in running:
-            exporters = [] if stdout is None else [stdout]
+            exporters: list[LogRecordExporter] = [] if stdout is None else [stdout]
             if to_file:
-                r.log_file = layout.log_file(r.name)
                 try:
-                    exporter, r.resumed = JsonLinesExporter.append_to(r.log_file)
+                    files = HourlyLogExporter(layout.log_dir(r.name), r.name, retention)
                 except OSError as e:
                     _fail(f"cannot open log file ({e}); try --path or run as root")
-                exporters.insert(0, exporter)
+                r.log_file, r.resumed = files.path, files.resumed
+                exporters.insert(0, files)
+            r.rollup = Rollup(layout.rollup_file(r.name) if to_file else None)
+            try:
+                r.rollup.load()
+            except (OSError, ValueError) as e:
+                # Only past counts are lost; better than not monitoring.
+                print(f"my_siem: warning: starting counts afresh: {e}", file=sys.stderr)
+            exporters.append(RollupExporter(r.rollup))
             r.provider = make_provider(exporters)
             r.out = event_logger(r.provider, f"my_siem.{r.name}")
             _announce(r, r.out, general_warnings + r.warnings)
@@ -368,7 +381,7 @@ def main(argv: list[str] | None = None) -> None:
                     f"serving the dashboard at {api.url}/ and the data at {routes}",
                     {"url.full": f"{api.url}/"},
                 )
-        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        started_at = local(time.time()).isoformat(timespec="seconds")
         for r in running:
             assert r.out is not None
             r.out.emit(
@@ -382,7 +395,7 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         if api is not None:
             api.stop()
-        stopped_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        stopped_at = local(time.time()).isoformat(timespec="seconds")
         for r in running:
             if r.out is not None:
                 r.out.emit(

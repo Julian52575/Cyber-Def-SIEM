@@ -1,3 +1,4 @@
+import asyncio
 import http.client
 import time
 from typing import Any
@@ -152,6 +153,21 @@ def test_history_records_metrics_not_whole_snapshots() -> None:
 
     [(_, metrics)] = history.samples
     assert metrics == {"active": 1, "conn_opened": 1, "failed": 2, "alerts": 0}
+
+
+def test_history_samples_on_wall_clock_boundaries() -> None:
+    history = History(busy_state().snapshot, ssh_metrics)
+
+    async def sample_twice() -> None:
+        task = asyncio.create_task(history.run(0.05))
+        while len(history.samples) < 2:
+            await asyncio.sleep(0.01)
+        task.cancel()
+
+    asyncio.run(sample_twice())
+
+    for at, _ in history.samples:
+        assert round(at / 0.05, 6).is_integer()
 
 
 def test_per_sample_marks_restarts_as_unknown() -> None:

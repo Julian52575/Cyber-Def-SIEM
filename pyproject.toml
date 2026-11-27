@@ -9,6 +9,7 @@ dependencies = [
 	"markdown-it-py>=3.0.0",
 	"opentelemetry-sdk>=1.45.2",
 	"scapy >= 2.8.0",
+	"tzdata>=2026.6",
 	"uvicorn>=0.54.0",
 ]
 

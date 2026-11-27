@@ -49,7 +49,7 @@ build: write-version
         exit 0
     fi
     uv run --with pyinstaller pyinstaller --onefile --clean --noconfirm \
-        --name my_siem --paths src --collect-data my_siem \
+        --name my_siem --paths src --collect-data my_siem --collect-data tzdata \
         --specpath build src/my_siem/main.py
 
 # Build, then install the binary into DEST: a local folder or an ssh target like user@host:/opt/bin

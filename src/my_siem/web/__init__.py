@@ -64,13 +64,16 @@ class History:
         self._metrics = metrics
         self.samples: deque[tuple[float, Metrics]] = deque(maxlen=MAX_SAMPLES)
 
-    def record(self) -> None:
-        self.samples.append((time.time(), self._metrics(self._snapshot())))
+    def record(self, at: float | None = None) -> None:
+        at = time.time() if at is None else at
+        self.samples.append((at, self._metrics(self._snapshot())))
 
     async def run(self, every: float) -> None:
+        """Sample on wall-clock multiples of `every` (:00, :05...), whenever we started."""
         while True:
-            self.record()
-            await asyncio.sleep(every)
+            await asyncio.sleep(every - time.time() % every)
+            # Stamped on the boundary, not the few ms the wakeup lands after it.
+            self.record(round(time.time() / every) * every)
 
 
 class Dashboard:

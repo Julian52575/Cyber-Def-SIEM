@@ -12,6 +12,7 @@ from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 from my_siem import main as cli
 from my_siem.api import ApiServer, create_app
 from my_siem.detect import RateDetector
+from my_siem.logfiles import list_logs
 from my_siem.net import Connection, ConnEvent, ConnKind
 from my_siem.ssh.log import AuthEvent, AuthKind
 from my_siem.ssh.monitor import SshMonitorConfig, new_state, report_auth, report_conn
@@ -50,7 +51,7 @@ def test_ssh_endpoint_reports_logins_connections_and_alerts() -> None:
     }
     [active] = body["active_connections"]
     assert active["client_ip"] == "10.0.0.5"
-    assert active["started"].startswith("1970-01-01T00:01:40")
+    assert active["started"] == "1970-01-01T01:01:40+01:00"  # Paris time
     assert body["recent_logins"][0]["user"] == "root"
     assert body["recent_alerts"][0]["name"] == "ssh_bruteforce"
 
@@ -96,11 +97,11 @@ def test_api_flag_serves_the_running_command(
     stop = threading.Event()
 
     def fake_run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
-        log = tmp_path / "logs" / "ssh" / "ssh.jsonl"
+        [log] = list_logs(tmp_path / "logs" / "ssh", "ssh")
         started = next(
             r
-            for r in map(json.loads, log.read_text().splitlines())
-            if r["event_name"] == "siem.api.started"
+            for r in map(json.loads, log.path.read_text().splitlines())
+            if r.get("event_name") == "siem.api.started"
         )
         url = started["attributes"]["url.full"]
         with urllib.request.urlopen(f"{url}ssh", timeout=5) as res:
@@ -130,8 +131,9 @@ def test_bad_api_port_flag_is_rejected(tmp_path: Path) -> None:
 def test_unwritable_log_with_api_fails_with_a_plain_message(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # A directory where the log file should be: opening it fails like a permission error.
-    (tmp_path / "logs" / "ssh" / "ssh.jsonl").mkdir(parents=True)
+    # A file where the log folder should be: creating it fails like a permission error.
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "ssh").write_text("")
 
     with pytest.raises(SystemExit, match="cannot open log file") as exc:
         cli.main(["--path", str(tmp_path), "--api", "--api-port", "0", "ssh"])

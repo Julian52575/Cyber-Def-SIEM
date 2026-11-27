@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from my_siem.clock import TZ, local
 from my_siem.web.charts import Series, bar_list, flow_diagram, line_chart
 
 type Snapshot = dict[str, Any]
@@ -39,13 +40,9 @@ def fmt_bytes(n: float) -> str:
 
 
 def fmt_clock(at: str | float) -> str:
-    """Time of day on this host, where the SIEM and its logs are."""
-    t = (
-        datetime.fromtimestamp(at)
-        if isinstance(at, float)
-        else datetime.fromisoformat(at)
-    )
-    return t.astimezone().strftime("%H:%M:%S")
+    """Time of day in Paris, like the log files and counts."""
+    t = local(at) if isinstance(at, float) else datetime.fromisoformat(at)
+    return t.astimezone(TZ).strftime("%H:%M:%S")
 
 
 def per_sample(totals: list[float]) -> list[float | None]:

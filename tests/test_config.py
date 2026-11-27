@@ -24,7 +24,8 @@ def test_layout_puts_each_command_in_its_own_folders() -> None:
     layout = Layout(Path("/etc/my_siem"))
     assert layout.general_config == Path("/etc/my_siem/config/config.json")
     assert layout.command_config("ssh") == Path("/etc/my_siem/config/ssh/config.json")
-    assert layout.log_file("ssh") == Path("/etc/my_siem/logs/ssh/ssh.jsonl")
+    assert layout.log_dir("ssh") == Path("/etc/my_siem/logs/ssh")
+    assert layout.rollup_file("ssh") == Path("/etc/my_siem/logs/ssh/rollup.json")
 
 
 def test_missing_config_is_created_with_the_defaults(tmp_path: Path) -> None:

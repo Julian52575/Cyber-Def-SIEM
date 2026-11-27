@@ -1,4 +1,5 @@
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -6,9 +7,11 @@ from typing import Any
 import pytest
 
 from my_siem import main as cli
+from my_siem.clock import hour_start
 from my_siem.dummy.command import DummyConfig
 from my_siem.http.command import HttpConfig
 from my_siem.https.command import HttpsConfig
+from my_siem.logfiles import list_logs, log_name
 from my_siem.ssh.monitor import SshMonitorConfig
 from my_siem.telemetry import INFO, EventLogger
 
@@ -39,6 +42,12 @@ def records(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
+def logged(root: Path, command: str) -> list[dict[str, Any]]:
+    """Every record of the command's raw log files, oldest file first, no resources."""
+    files = list_logs(root / "logs" / command, command)
+    return [r for f in files for r in records(f.path) if "resource" not in r]
+
+
 def test_without_configs_it_creates_them_uses_defaults_and_creates_log_folders(
     tmp_path: Path, ran: list[SshMonitorConfig], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -49,8 +58,7 @@ def test_without_configs_it_creates_them_uses_defaults_and_creates_log_folders(
     assert err.count("warning: no config at") == 2
     assert (tmp_path / "config" / "config.json").is_file()
     assert (tmp_path / "config" / "ssh" / "config.json").is_file()
-    log = tmp_path / "logs" / "ssh" / "ssh.jsonl"
-    names = [r["event_name"] for r in records(log)]
+    names = [r["event_name"] for r in logged(tmp_path, "ssh")]
     assert names == [
         "siem.log.opened",
         "siem.config.created",
@@ -62,13 +70,13 @@ def test_without_configs_it_creates_them_uses_defaults_and_creates_log_folders(
 
 
 def test_appends_to_previous_log(tmp_path: Path, ran: list[SshMonitorConfig]) -> None:
-    log = tmp_path / "logs" / "ssh" / "ssh.jsonl"
+    log = tmp_path / "logs" / "ssh" / log_name("ssh", hour_start(time.time()))
     log.parent.mkdir(parents=True)
     log.write_text('{"event_name": "old"}')  # last record cut short, no newline
 
     cli.main(["--path", str(tmp_path), "ssh"])
 
-    recs = records(log)
+    recs = logged(tmp_path, "ssh")
     assert recs[0] == {"event_name": "old"}
     assert recs[1]["event_name"] == "siem.log.opened"
     assert recs[1]["attributes"]["siem.log.resumed"] is True
@@ -135,8 +143,8 @@ def test_without_a_command_every_command_runs(
         "dummy": [DummyConfig()],
     }
     for name in cli.COMMANDS:
-        log = tmp_path / "logs" / name / f"{name}.jsonl"
-        assert "test.ran" in [r["event_name"] for r in records(log)]
+        assert "test.ran" in [r["event_name"] for r in logged(tmp_path, name)]
+        assert (tmp_path / "logs" / name / "rollup.json").is_file()
 
 
 def test_only_the_given_commands_run_each_with_its_flags(

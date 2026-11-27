@@ -18,7 +18,8 @@ re-raises it.
 The `ssh` command, for example:
 
 ```
- sshd log ──► log.py ─┐                         ┌──► telemetry.py ──► logs/ssh/ssh.jsonl
+ sshd log ──► log.py ─┐                         ┌──► telemetry.py ─┬─► logfiles.py ─► logs/ssh/ssh.<hour>.jsonl
+                      │                         │                  └─► rollup.py ───► logs/ssh/rollup.json
                       ├──► monitor.py ──────────┤
  network ───► net.py ─┘   (+ detect.py alerts)  └──► state.py (SshState)
                                                           │ snapshot()
@@ -42,6 +43,9 @@ The network side uses the shared modules:
 | ------------ | ---- |
 | `net.py`     | `ConnTracker` turns TCP packets into `ConnEvent`s: a SYN to a watched port opens a connection, FIN or RST closes it; packets and bytes are counted in between. `run_sniffer` runs Scapy and reports the `network` source's status. |
 | `live.py`    | `ConnState`, the base of the `ssh`, `http` and `https` states: source status, counters, open connections and the last 100 alerts. Lock-protected, because the command's threads write while the API thread reads `snapshot()`. |
+| `logfiles.py` | `HourlyLogExporter` writes raw events into one file per Paris hour, each opening with a resource line; `Retention` gzips closed hours and deletes the oldest past the age and size caps, in a background thread. |
+| `clock.py`   | Paris time (`Europe/Paris`), where everything cuts time: whole minutes, hours, and days from Paris midnight (23 or 25 hours on DST changes). |
+| `rollup.py`  | `Rollup` counts events by name per minute, hour and day (60, 24 and 100 buckets), saved to `rollup.json`; `series(since)` returns the finest tier reaching back that far. |
 | `detect.py`  | `RateDetector` (N hits from one key within a window), and `raise_alert`/`rate_alert`, which record an alert in the state and log it. |
 
 The monitor never talks to the web side. It only fills `SshState`, and everything shown

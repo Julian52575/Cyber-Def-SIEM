@@ -1,12 +1,11 @@
 """Emit every SIEM event as an OpenTelemetry log record, written as one JSON line."""
 
-import os
+import json
 import socket
 import threading
 import time
 from collections.abc import Mapping, Sequence
-from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 from opentelemetry._logs import Logger, SeverityNumber
 from opentelemetry.sdk._logs import LoggerProvider, ReadableLogRecord
@@ -16,6 +15,7 @@ from opentelemetry.sdk._logs.export import (
     SimpleLogRecordProcessor,
 )
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.util import ns_to_iso_str
 from opentelemetry.util.types import AnyValue
 
 from my_siem.version import VERSION
@@ -26,30 +26,55 @@ WARN = SeverityNumber.WARN
 ERROR = SeverityNumber.ERROR
 
 
+def _dumps(data: dict[str, Any]) -> str:
+    return json.dumps(data, separators=(",", ":"), default=repr)
+
+
+def record_json(record: ReadableLogRecord, with_resource: bool = False) -> str:
+    """OTel's JSON shape without what is always empty here or repeated on every line.
+
+    Trace fields only appear when a record carries a trace; the observed time, a few
+    microseconds after the event time, is left out.
+    """
+    r = record.log_record
+    data: dict[str, Any] = {
+        "timestamp": ns_to_iso_str(r.timestamp or r.observed_timestamp or 0),
+        "severity_number": r.severity_number.value if r.severity_number else None,
+        "severity_text": r.severity_text,
+        "event_name": r.event_name or "",
+        "body": r.body,
+        "attributes": dict(r.attributes) if r.attributes else None,
+    }
+    if r.trace_id:
+        data["trace_id"] = f"0x{r.trace_id:032x}"
+        data["span_id"] = f"0x{r.span_id or 0:016x}"
+        data["trace_flags"] = r.trace_flags
+    if record.dropped_attributes:
+        data["dropped_attributes"] = record.dropped_attributes
+    if with_resource:
+        data["resource"] = json.loads(record.resource.to_json())
+    return _dumps(data)
+
+
+def resource_json(resource: Resource) -> str:
+    """The line naming who wrote the records below it."""
+    return _dumps({"resource": json.loads(resource.to_json())})
+
+
 class JsonLinesExporter(LogRecordExporter):
-    """Write records as JSON lines; safe to share between the monitor's threads."""
+    """Write records as JSON lines to a stream; safe to share between threads.
 
-    def __init__(self, out: IO[str], owned: bool = False) -> None:
+    Each line carries its resource: several commands may share the stream.
+    """
+
+    def __init__(self, out: IO[str]) -> None:
         self._out = out
-        self._owned = owned
         self._lock = threading.Lock()
-
-    @classmethod
-    def append_to(cls, path: Path) -> tuple["JsonLinesExporter", bool]:
-        """Open `path` for appending, creating its folders; also tell if it held records."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        resumed = path.exists() and path.stat().st_size > 0
-        # Logs reveal users and addresses, so keep them away from other users.
-        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
-        out = os.fdopen(fd, "a", encoding="utf-8")
-        if resumed and not _ends_with_newline(path):
-            out.write("\n")  # a crash cut the last record short; don't glue onto it
-        return cls(out, owned=True), resumed
 
     def export(self, batch: Sequence[ReadableLogRecord]) -> LogRecordExportResult:
         with self._lock:
             for record in batch:
-                self._out.write(record.to_json(indent=None) + "\n")
+                self._out.write(record_json(record, with_resource=True) + "\n")
             self._out.flush()
         return LogRecordExportResult.SUCCESS
 
@@ -61,14 +86,6 @@ class JsonLinesExporter(LogRecordExporter):
     def shutdown(self) -> None:
         with self._lock:
             self._out.flush()
-            if self._owned:
-                self._out.close()
-
-
-def _ends_with_newline(path: Path) -> bool:
-    with path.open("rb") as f:
-        f.seek(-1, os.SEEK_END)
-        return f.read(1) == b"\n"
 
 
 def make_provider(exporters: Sequence[LogRecordExporter]) -> LoggerProvider:

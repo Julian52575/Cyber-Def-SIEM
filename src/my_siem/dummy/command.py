@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import Any
 
+from my_siem.clock import local
 from my_siem.config import Fields
 from my_siem.telemetry import INFO, EventLogger
 
@@ -97,4 +98,4 @@ def run(out: EventLogger, cfg: DummyConfig, state: DummyState) -> None:
     )
     while True:
         time.sleep(cfg.interval)
-        state.tick(time.localtime().tm_hour)
+        state.tick(local(time.time()).hour)

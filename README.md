@@ -62,7 +62,10 @@ General flags may go before or after the commands. Command-line flags override t
 │   ├── config.json        general config
 │   └── <command>/config.json
 └── logs/
-    └── <command>/<command>.jsonl
+    └── <command>/
+        ├── <command>.<YYYY-MM-DDTHH±hhmm>.jsonl     raw events of the current hour
+        ├── <command>.<YYYY-MM-DDTHH±hhmm>.jsonl.gz  raw events of a closed hour
+        └── rollup.json                          event counts per minute, hour and day
 ```
 
 All config files are JSON and optional: a missing file (and its folders) is created with
@@ -81,6 +84,8 @@ Run once with `--path .` to get every config file, each key at its default, unde
 | `api_host` | `"127.0.0.1"` | Address the API listens on |
 | `api_port` | `8080`  | Port the API listens on         |
 | `api_allowed_hosts` | `["localhost", "127.0.0.1", "::1"]` | Host names the API answers to, besides `api_host` (against DNS rebinding) |
+| `log_max_age_days` | `100` | Raw log files older than this are deleted (per command) |
+| `log_max_size_mb` | `1024` | Past this total, the oldest raw log files are deleted (per command) |
 
 ### API
 
@@ -115,15 +120,33 @@ works without JavaScript (it then shows the data as of the page load); with it,
 `static/live.js` re-fetches the fragment every 5 s and swaps it in. It polls rather than
 streams because proxies that only forward finished responses would hold a stream forever.
 Chart history is sampled by the
-server every 5 s and kept for 10 minutes, so it survives reloads but not restarts.
+server on every 5 s of the clock (:00, :05, ...) and kept for 10 minutes, so it survives reloads but not restarts.
 
 The server listens on all interfaces by default. It exposes users and addresses, so use
 `--api-host 127.0.0.1` to keep it local. To reach it from another machine, add the name or
 address you browse to to `api_allowed_hosts`; other `Host` headers get `400`.
 
-Log folders are created when missing. An existing log file is appended to, never
-overwritten, so history from earlier runs stays in the same file (the run's first event,
-`siem.log.opened`, has `siem.log.resumed: true`). Log files are created with mode `0640`.
+All time is cut in Paris time (`Europe/Paris`), whatever the host's time zone: log file
+hours, count buckets (a day starts at Paris midnight, so it lasts 23 or 25 hours on DST
+changes), the dashboard's clock and the API's timestamps. Event timestamps in the logs stay
+in UTC (`...Z`), as OpenTelemetry writes them.
+
+Log folders are created when missing. Raw events go to one file per hour, named after the
+Paris hour they were written in and its UTC offset (`ssh.2026-11-27T15+0100.jsonl`), so the
+hour repeated when DST ends gets two files (`T02+0200`, then `T02+0100`). A run that starts within an hour that already has a file
+appends to it, never overwriting it (the run's first event, `siem.log.opened`, then has
+`siem.log.resumed: true`). Log files are created with mode `0640`.
+
+Retention runs in the background at startup and whenever a new hour starts: closed hours
+are gzipped (about 10 to 50 times smaller), files past `log_max_age_days` are deleted, then
+the oldest files until the folder fits in `log_max_size_mb`. The file being written is
+never touched, so one very busy hour can exceed the size cap until the next hour.
+Files left over from older versions (`<command>.jsonl`) are not managed; move or delete them.
+
+Alongside, `rollup.json` keeps how many events of each name happened per minute (last
+60 minutes), per hour (last 24 hours) and per day (last 100 days). It stays a few KB
+whatever the traffic, outlives the raw logs, and is saved every minute and on exit (a crash
+loses at most the last minute). With `--no-log` the counts are kept in memory only.
 
 ### Tracking SSH connections
 
@@ -236,7 +259,14 @@ only its startup events. Copy it to start a new command.
 
 Every event is written as one JSON line following the
 [OpenTelemetry log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/)
-(`timestamp`, `severity_number`, `severity_text`, `body`, `attributes`, `resource`, `event_name`).
+(`timestamp`, `severity_number`, `severity_text`, `event_name`, `body`, `attributes`).
+Fields that are always empty here are left out: the trace fields (no tracing) and the
+observed time (a few µs after `timestamp`). They appear only if a record carries them.
+
+Who wrote the events (`resource`: host, version, run instance) is not repeated on each
+line. A log file starts with a `{"resource": {...}}` line, and each later run appending to it
+writes its own; it applies to the records below it. On stdout, several commands share the
+stream, so each line carries its `resource` instead.
 Attributes use the OTel semantic conventions (`client.address`, `server.port`, `user.name`,
 `process.pid`, …); SIEM-specific ones are namespaced under `siem.`.
 
@@ -257,7 +287,8 @@ Attributes use the OTel semantic conventions (`client.address`, `server.port`, `
 | `siem.config.created`, `siem.config.missing`, `siem.config.unknown_key` | WARN     |
 
 ```sh
-jq 'select(.severity_text == "ERROR")' /etc/my_siem/logs/ssh/ssh.jsonl   # only alerts and failures
+zcat -f /etc/my_siem/logs/ssh/ssh.*.jsonl* | jq 'select(.severity_text == "ERROR")'   # only alerts and failures
+zcat -f /etc/my_siem/logs/ssh/ssh.*.jsonl* | jq -c 'select(.event_name)'               # events, without resource lines
 ```
 
 ### Project layout

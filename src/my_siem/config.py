@@ -25,8 +25,11 @@ class Layout:
     def command_config(self, command: str) -> Path:
         return self.root / "config" / command / CONFIG_FILE
 
-    def log_file(self, command: str) -> Path:
-        return self.root / "logs" / command / f"{command}.jsonl"
+    def log_dir(self, command: str) -> Path:
+        return self.root / "logs" / command
+
+    def rollup_file(self, command: str) -> Path:
+        return self.log_dir(command) / "rollup.json"
 
 
 @dataclass(frozen=True)
@@ -143,9 +146,15 @@ class GeneralConfig:
     api_port: int = 8080
     # Names the browser may use to reach the API; `api_host` is always allowed too.
     api_allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
+    # Per command; as far back as the longest time filter.
+    log_max_age_days: int = 100
+    log_max_size_mb: int = 1024
 
     def __post_init__(self) -> None:
         check_port(self.api_port)
+        for name in ("log_max_age_days", "log_max_size_mb"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name!r} must be positive")
 
     @classmethod
     def from_json(cls, f: Fields) -> "GeneralConfig":
@@ -165,6 +174,8 @@ class GeneralConfig:
             api_host=f.get("api_host", str, cls.api_host),
             api_port=f.get("api_port", int, cls.api_port),
             api_allowed_hosts=hosts,
+            log_max_age_days=f.get("log_max_age_days", int, cls.log_max_age_days),
+            log_max_size_mb=f.get("log_max_size_mb", int, cls.log_max_size_mb),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -175,4 +186,6 @@ class GeneralConfig:
             "api_host": self.api_host,
             "api_port": self.api_port,
             "api_allowed_hosts": list(self.api_allowed_hosts),
+            "log_max_age_days": self.log_max_age_days,
+            "log_max_size_mb": self.log_max_size_mb,
         }
