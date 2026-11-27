@@ -399,7 +399,7 @@ tests/         pytest suite
 | `just check-typecheck` | Type-check `src` with mypy                          |
 | `just check-test`      | Run the pytest suite                                |
 | `just set-githooks`    | Use `.githooks/` as the git hooks directory         |
-| `just tags`            | List the code's [annotations](#code-annotations) (`TODO`, `FIXME`, `HACK`, `PERF`, `SECURITY`) |
+| `just codetags`        | List the code's [annotations](#code-annotations) (`TODO`, `FIXME`, `HACK`, `PERF`, `SECURITY`) |
 | `just build`           | Build a standalone binary at `dist/my_siem`, skipped when no source changed |
 | `just install DEST`    | Build, then install the binary into `DEST`: a local folder or an ssh target like `user@host:/opt/bin` |
 
@@ -463,7 +463,7 @@ Hooks give local feedback only; CI and the branch rulesets are the real gates.
 ### Code annotations
 
 Code that will need more work says so where it lives, with a tag comment that names the
-kind of work, so `just tags` lists everything that is pending:
+kind of work, so `just codetags` lists everything that is pending:
 
 ```python
 # HACK(import): a GET can start an import, for a proxy that forwards GET only.
