@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run `just check` (lint, typecheck, test) before each commit.
+# Run `just check` (lint, typecheck, test) before each commit, from commit-msg.
 # Opt out with  git config hooks.runChecks false
 # Local feedback only -- `git commit --no-verify` skips it.
 # Checks the working tree, not just the staged content.
