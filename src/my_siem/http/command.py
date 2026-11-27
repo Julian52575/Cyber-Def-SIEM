@@ -21,7 +21,7 @@ class HttpConfig:
     """Settings of the `http` command, read from config/http/config.json."""
 
     ports: frozenset[int] = frozenset({80})
-    iface: str | None = None
+    interface: str | None = None
     request_threshold: int = 100
     error_threshold: int = 20
     window: float = 60.0
@@ -36,7 +36,7 @@ class HttpConfig:
         d = cls()
         return cls(
             ports=ports_from_json(f.raw("ports"), d.ports),
-            iface=f.optional("iface", str),
+            interface=f.optional("interface", str),
             request_threshold=f.get("request_threshold", int, d.request_threshold),
             error_threshold=f.get("error_threshold", int, d.error_threshold),
             window=f.get("window", float, d.window),
@@ -45,7 +45,7 @@ class HttpConfig:
     def to_json(self) -> dict[str, Any]:
         return {
             "ports": sorted(self.ports),
-            "iface": self.iface,
+            "interface": self.interface,
             "request_threshold": self.request_threshold,
             "error_threshold": self.error_threshold,
             "window": self.window,
@@ -233,7 +233,7 @@ def _ports(spec: str) -> frozenset[int]:
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     # None so that only flags actually given override the config.
     parser.add_argument("--ports", type=_ports, help='HTTP ports, e.g. "80,8080"')
-    parser.add_argument("--iface", help="interface to sniff on (default: all)")
+    parser.add_argument("--interface", help="interface to sniff on (default: all)")
     parser.add_argument(
         "--request-threshold", type=int, help="requests from one IP that alert"
     )
@@ -244,7 +244,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def apply_flags(cfg: HttpConfig, args: argparse.Namespace) -> HttpConfig:
-    names = ("ports", "iface", "request_threshold", "error_threshold", "window")
+    names = ("ports", "interface", "request_threshold", "error_threshold", "window")
     return replace(
         cfg, **{n: getattr(args, n) for n in names if getattr(args, n) is not None}
     )
@@ -256,7 +256,7 @@ def run(out: EventLogger, cfg: HttpConfig, state: HttpState) -> None:
         out,
         state,
         "http",
-        cfg.iface,
+        cfg.interface,
         cfg.ports,
         lambda pkt: watcher.handle(pkt, float(pkt.time)),
     )

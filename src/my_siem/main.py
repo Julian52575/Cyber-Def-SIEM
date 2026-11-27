@@ -1,3 +1,5 @@
+"""Entry point: parse the general flags and commands, then run the commands side by side."""
+
 import argparse
 import queue
 import sys
@@ -191,7 +193,7 @@ def split_commands(
     """Cut argv at each command name: the general flags, then each command's flags.
 
     A token right after a flag that takes a value is that value, never a command,
-    so `--iface dummy` still names an interface.
+    so `--interface dummy` still names an interface.
     """
     general: list[str] = []
     selected: dict[str, list[str]] = {}

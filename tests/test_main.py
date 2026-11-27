@@ -156,12 +156,21 @@ def test_only_the_given_commands_run_each_with_its_flags(
 def test_several_commands_with_their_own_flags(
     tmp_path: Path, ran_all: dict[str, list[Any]]
 ) -> None:
-    # "dummy" right after --iface is the interface name, not the command.
+    # "dummy" right after --interface is the interface name, not the command.
     cli.main(
-        ["ssh", "--iface", "dummy", "--path", str(tmp_path), "dummy", "--interval", "3"]
+        [
+            "ssh",
+            "--interface",
+            "dummy",
+            "--path",
+            str(tmp_path),
+            "dummy",
+            "--interval",
+            "3",
+        ]
     )
 
-    assert ran_all["ssh"][0].iface == "dummy"
+    assert ran_all["ssh"][0].interface == "dummy"
     assert ran_all["dummy"] == [DummyConfig(interval=3.0)]
 
 

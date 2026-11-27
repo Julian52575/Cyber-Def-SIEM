@@ -96,8 +96,8 @@ def test_unknown_keys_are_warned_about(tmp_path: Path) -> None:
         {"fail_threshold": 0},
         {"ports": [22, "ssh"]},
         {"ports": "0"},
-        {"sniff": 1},
-        {"sniff": False, "read_auth_log": False},
+        {"sniff_traffic": 1},
+        {"sniff_traffic": False, "read_auth_log": False},
         {"auth_log": None},
     ],
 )

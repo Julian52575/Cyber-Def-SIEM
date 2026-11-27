@@ -15,10 +15,12 @@ Without them installed, run through Nix: `nix-shell -p uv just`.
 
 ```sh
 git clone <repo-url> && cd Cyber-Def-SIEM
-just sync          # create .venv and install dependencies, dev tools included
-just set-githooks  # enable the repo's git hooks
-just check         # lint, type-check and test
-just run --path . --stdout       # run every command, config and logs in the repo
+just sync                   # create .venv and install dependencies, dev tools included
+just set-githooks           # enable the repo's git hooks
+just check                  # lint, type-check and test
+just run --path . --stdout  # run every command, config and logs in the repo
+just build                  # build a standalone binary at dist/my_siem
+just install DEST           # build, then install it into DEST (a folder or user@host:/dir)
 ```
 
 > Sniffing packets with Scapy needs root or the `CAP_NET_RAW` capability.
@@ -67,7 +69,7 @@ All config files are JSON and optional: a missing file (and its folders) is crea
 the built-in defaults, with a warning, and later runs read it from there. If it cannot be
 created (e.g. no write access), the defaults are used for that run. Keys left out of a
 file keep their default; unknown keys are warned about; a malformed file or wrong value type stops my_siem with an error.
-Examples with every key at its default are in [`config/`](config/).
+Run once with `--path .` to get every config file, each key at its default, under `config/`.
 
 `config/config.json`:
 
@@ -134,10 +136,10 @@ sudo .venv/bin/my_siem ssh --ports 22,221-229
 | Key              | Default  | Description                                                    |
 | ---------------- | -------- | -------------------------------------------------------------- |
 | `ports`          | `"22"`   | SSH ports, as a list (`[22, 2222]`) or a string (`"22,221-229"`) |
-| `iface`          | `null`   | Interface to sniff on (`null`: all)                            |
+| `interface`      | `null`   | Interface to sniff on (`null`: all)                            |
 | `auth_log`       | `"auto"` | `"auto"` (auth.log, else journald), `"journald"`, or a file path |
 | `read_auth_log`  | `true`   | Read sshd logs (`--no-auth-log` to disable)                    |
-| `sniff`          | `true`   | Sniff network traffic (`--no-sniff` to disable)                |
+| `sniff_traffic`  | `true`   | Sniff network traffic (`--no-sniff-traffic` to disable)        |
 | `fail_threshold` | `5`      | Failed logins from one IP that raise an alert                  |
 | `conn_threshold` | `20`     | New connections from one IP that raise an alert                |
 | `window`         | `60`     | Alert window, in seconds                                       |
@@ -168,7 +170,7 @@ inside TLS are not seen (see `https`, or the web server's own logs).
 | Key                 | Default | Description                                          |
 | ------------------- | ------- | ---------------------------------------------------- |
 | `ports`             | `"80"`  | HTTP ports, as a list or a string, like `ssh`'s      |
-| `iface`             | `null`  | Interface to sniff on (`null`: all)                  |
+| `interface`         | `null`  | Interface to sniff on (`null`: all)                  |
 | `request_threshold` | `100`   | Requests from one IP that raise an alert             |
 | `error_threshold`   | `20`    | 4xx responses to one IP that raise an alert          |
 | `window`            | `60`    | Alert window, in seconds                             |
@@ -202,7 +204,7 @@ skipped.
 | Key              | Default | Description                                     |
 | ---------------- | ------- | ----------------------------------------------- |
 | `ports`          | `"443"` | HTTPS ports, as a list or a string              |
-| `iface`          | `null`  | Interface to sniff on (`null`: all)             |
+| `interface`      | `null`  | Interface to sniff on (`null`: all)             |
 | `conn_threshold` | `100`   | New connections from one IP that raise an alert |
 | `window`         | `60`    | Alert window, in seconds                        |
 
@@ -270,7 +272,7 @@ src/my_siem/   the package (entry point: my_siem.main:main)
   net.py       TCP connection tracking and the sniffer, shared by ssh, http and https
   dummy/       the `dummy` command: placeholder data, a template for new commands
   web/         the dashboard: Jinja2 templates, SVG chart geometry, polled fragments
-config/        example configs, all values at their defaults
+config/        configs written when run with --path . (git-ignored)
 logs/          log output when run with --path . (git-ignored)
 tests/         pytest suite
 .githooks/     local git hooks
@@ -285,11 +287,14 @@ tests/         pytest suite
 | `just sync`            | Install dependencies (incl. dev group) into `.venv` |
 | `just run [args...]`   | Run the SIEM CLI, forwarding any arguments          |
 | `just fmt`             | Format `src` and `tests` with ruff                  |
+| `just lint`            | Lint `src` and `tests` with ruff                    |
 | `just check`           | Run every check below, in order                     |
 | `just check-lint`      | Lint `src` and `tests` with ruff, auto-fixing       |
 | `just check-typecheck` | Type-check `src` with mypy                          |
 | `just check-test`      | Run the pytest suite                                |
 | `just set-githooks`    | Use `.githooks/` as the git hooks directory         |
+| `just build`           | Build a standalone binary at `dist/my_siem`, skipped when no source changed |
+| `just install DEST`    | Build, then install the binary into `DEST`: a local folder or an ssh target like `user@host:/opt/bin` |
 
 ### Quality Assurance
 

@@ -1,3 +1,5 @@
+"""Alert detection shared by the commands: per-IP rate thresholds and raising alerts."""
+
 import time
 from collections import defaultdict, deque
 from collections.abc import Mapping

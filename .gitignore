@@ -20,6 +20,9 @@ result-*
 # Files
 *.log
 
+# Runtime config auto written
+config/
+
 # Runtime logs written by `my_siem --path .`
 logs/
 

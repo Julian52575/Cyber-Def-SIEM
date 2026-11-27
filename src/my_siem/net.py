@@ -164,7 +164,7 @@ def run_sniffer(
     out: EventLogger,
     state: SourceState,
     what: str,
-    iface: str | None,
+    interface: str | None,
     ports: frozenset[int],
     on_packet: Callable[[Packet], None],
 ) -> None:
@@ -177,12 +177,12 @@ def run_sniffer(
         f"sniffing {what} traffic on ports {listed}",
         {
             "siem.source": "network",
-            "network.interface.name": iface,
+            "network.interface.name": interface,
             "siem.ports": sorted(ports),
         },
     )
     try:
-        sniff(iface=iface, filter=bpf_filter(ports), prn=on_packet, store=False)
+        sniff(interface=interface, filter=bpf_filter(ports), prn=on_packet, store=False)
     except (OSError, RuntimeError) as e:
         state.source("network", "failed", str(e))
         out.emit(

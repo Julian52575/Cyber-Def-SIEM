@@ -33,7 +33,7 @@ class HttpsConfig:
     """Settings of the `https` command, read from config/https/config.json."""
 
     ports: frozenset[int] = frozenset({443})
-    iface: str | None = None
+    interface: str | None = None
     conn_threshold: int = 100
     window: float = 60.0
 
@@ -47,7 +47,7 @@ class HttpsConfig:
         d = cls()
         return cls(
             ports=ports_from_json(f.raw("ports"), d.ports),
-            iface=f.optional("iface", str),
+            interface=f.optional("interface", str),
             conn_threshold=f.get("conn_threshold", int, d.conn_threshold),
             window=f.get("window", float, d.window),
         )
@@ -55,7 +55,7 @@ class HttpsConfig:
     def to_json(self) -> dict[str, Any]:
         return {
             "ports": sorted(self.ports),
-            "iface": self.iface,
+            "interface": self.interface,
             "conn_threshold": self.conn_threshold,
             "window": self.window,
         }
@@ -206,7 +206,7 @@ def _ports(spec: str) -> frozenset[int]:
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     # None so that only flags actually given override the config.
     parser.add_argument("--ports", type=_ports, help='HTTPS ports, e.g. "443,8443"')
-    parser.add_argument("--iface", help="interface to sniff on (default: all)")
+    parser.add_argument("--interface", help="interface to sniff on (default: all)")
     parser.add_argument(
         "--conn-threshold", type=int, help="new connections from one IP that alert"
     )
@@ -214,7 +214,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def apply_flags(cfg: HttpsConfig, args: argparse.Namespace) -> HttpsConfig:
-    names = ("ports", "iface", "conn_threshold", "window")
+    names = ("ports", "interface", "conn_threshold", "window")
     return replace(
         cfg, **{n: getattr(args, n) for n in names if getattr(args, n) is not None}
     )
@@ -226,7 +226,7 @@ def run(out: EventLogger, cfg: HttpsConfig, state: HttpsState) -> None:
         out,
         state,
         "https",
-        cfg.iface,
+        cfg.interface,
         cfg.ports,
         lambda pkt: watcher.handle(pkt, float(pkt.time)),
     )

@@ -44,11 +44,11 @@ class SshMonitorConfig:
     """Settings of the `ssh` command, read from config/ssh/config.json."""
 
     ports: frozenset[int] = frozenset({22})
-    iface: str | None = None
+    interface: str | None = None
     # "auto" (auth.log if present, else journald), "journald", or a file path.
     auth_log: str = AUTO
     read_auth_log: bool = True
-    sniff: bool = True
+    sniff_traffic: bool = True
     fail_threshold: int = 5
     conn_threshold: int = 20
     window: float = 60.0
@@ -59,7 +59,7 @@ class SshMonitorConfig:
                 raise ValueError(f"{name!r} must be positive")
         if not self.auth_log:
             raise ValueError("'auth_log' cannot be empty")
-        if not (self.read_auth_log or self.sniff):
+        if not (self.read_auth_log or self.sniff_traffic):
             raise ValueError("sshd logs and sniffing are both disabled: nothing to do")
 
     @classmethod
@@ -67,10 +67,10 @@ class SshMonitorConfig:
         d = cls()
         return cls(
             ports=ports_from_json(f.raw("ports"), d.ports),
-            iface=f.optional("iface", str),
+            interface=f.optional("interface", str),
             auth_log=f.get("auth_log", str, d.auth_log),
             read_auth_log=f.get("read_auth_log", bool, d.read_auth_log),
-            sniff=f.get("sniff", bool, d.sniff),
+            sniff_traffic=f.get("sniff_traffic", bool, d.sniff_traffic),
             fail_threshold=f.get("fail_threshold", int, d.fail_threshold),
             conn_threshold=f.get("conn_threshold", int, d.conn_threshold),
             window=f.get("window", float, d.window),
@@ -79,10 +79,10 @@ class SshMonitorConfig:
     def to_json(self) -> dict[str, Any]:
         return {
             "ports": sorted(self.ports),
-            "iface": self.iface,
+            "interface": self.interface,
             "auth_log": self.auth_log,
             "read_auth_log": self.read_auth_log,
-            "sniff": self.sniff,
+            "sniff_traffic": self.sniff_traffic,
             "fail_threshold": self.fail_threshold,
             "conn_threshold": self.conn_threshold,
             "window": self.window,
@@ -203,7 +203,7 @@ def _run_sniffer(out: EventLogger, state: SshState, cfg: SshMonitorConfig) -> No
         if event is not None:
             report_conn(out, state, event, openings)
 
-    run_sniffer(out, state, "ssh", cfg.iface, cfg.ports, on_packet)
+    run_sniffer(out, state, "ssh", cfg.interface, cfg.ports, on_packet)
 
 
 def run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
@@ -212,7 +212,7 @@ def run(out: EventLogger, cfg: SshMonitorConfig, state: SshState) -> None:
         workers.append(
             threading.Thread(target=_run_logs, args=(out, state, cfg), daemon=True)
         )
-    if cfg.sniff:
+    if cfg.sniff_traffic:
         workers.append(
             threading.Thread(target=_run_sniffer, args=(out, state, cfg), daemon=True)
         )
