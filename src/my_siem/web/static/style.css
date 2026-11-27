@@ -504,3 +504,103 @@ th {
   margin: 0;
   font-family: ui-monospace, monospace;
 }
+
+/* Help: the command's README, in a popover */
+
+.help-button,
+.help-head button {
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.6rem;
+  cursor: pointer;
+}
+
+.help-button:hover,
+.help-head button:hover {
+  border-color: var(--accent);
+}
+
+.help {
+  width: min(48rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 0;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.help::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.help-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.help-body {
+  padding: 0 1rem 1rem;
+  line-height: 1.5;
+}
+
+.help-body h1 {
+  font-size: 1.25rem;
+}
+
+.help-body h2 {
+  font-size: 1.05rem;
+  margin-top: 1.5rem;
+}
+
+.help-body h3 {
+  margin-top: 1.25rem;
+}
+
+.help-body pre,
+.help-body code {
+  font-family: ui-monospace, monospace;
+}
+
+.help-body pre {
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  background: var(--page);
+  border-radius: 4px;
+}
+
+.help-body a {
+  color: var(--accent);
+}
+
+/* Scrolls on its own when a column cannot shrink, instead of widening the view. */
+.help-body table {
+  display: block;
+  overflow-x: auto;
+}
+
+/* README tables hold prose, unlike the data tables. */
+.help-body th,
+.help-body td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+/* Breaks at word boundaries first; tables get <wbr> after underscores from help.py. */
+.help-body p code,
+.help-body li code {
+  overflow-wrap: anywhere;
+}

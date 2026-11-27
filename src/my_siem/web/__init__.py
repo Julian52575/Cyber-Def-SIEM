@@ -1,6 +1,7 @@
 """Server-rendered dashboard, kept live by polling for re-rendered fragments."""
 
 import asyncio
+import hashlib
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -14,11 +15,22 @@ from jinja2 import Environment, PackageLoader
 from markupsafe import Markup
 
 from my_siem.version import VERSION
+from my_siem.web.help import command_help
 from my_siem.web.sections import SECTIONS, Metrics, Section, fmt_clock
 
 type Snapshot = Callable[[], dict[str, Any]]
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _asset_version() -> str:
+    """Changes whenever a static file does, so browsers drop their cached copy."""
+    digest = hashlib.sha256()
+    for f in sorted(STATIC_DIR.iterdir()):
+        digest.update(f.read_bytes())
+    return digest.hexdigest()[:12]
+
+
 # ~10 minutes of history at the default 5 s.
 MAX_SAMPLES = 120
 # Seconds between dashboard refreshes the reader can pick from.
@@ -35,6 +47,7 @@ UI_HEADERS = {"Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff
 _env = Environment(loader=PackageLoader("my_siem.web"), autoescape=True)
 _env.filters["clock"] = fmt_clock
 _env.globals["version"] = VERSION
+_env.globals["asset_version"] = _asset_version()
 
 
 class History:
@@ -68,6 +81,8 @@ class Dashboard:
             for s in self.sections
             if s.metrics
         }
+        # Read once: the READMEs ship with the package and never change while running.
+        self.helps = {s.id: command_help(s.id) for s in self.sections}
 
     async def run_samplers(self) -> None:
         async with asyncio.TaskGroup() as tg:
@@ -99,6 +114,7 @@ class Dashboard:
             every_ms=int(self.every * 1000),
             poll_choices=POLL_CHOICES,
             fragment=Markup(self.fragment(section)),
+            help=self.helps[section.id],
         )
         return HTMLResponse(html, headers=UI_HEADERS)
 

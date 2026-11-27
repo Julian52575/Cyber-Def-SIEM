@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ section.title }} · my_siem</title>
-  <link rel="stylesheet" href="{{ root }}static/style.css">
-  <script src="{{ root }}static/live.js" defer></script>
+  <link rel="stylesheet" href="{{ root }}static/style.css?v={{ asset_version }}">
+  <script src="{{ root }}static/live.js?v={{ asset_version }}" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -21,6 +21,10 @@
           {%- endfor %}
         </select>
       </label>
+      {%- if help %}
+      {#- popovertarget opens it without JavaScript, so it works under the CSP and with scripts off. #}
+      <button type="button" class="help-button" popovertarget="help" aria-haspopup="dialog">Help</button>
+      {%- endif %}
     </div>
   </header>
   <main>
@@ -34,5 +38,14 @@
     </section>
   </main>
   <footer class="footer muted">my_siem {{ version }}</footer>
+  {%- if help %}
+  <div id="help" class="help" popover role="dialog" aria-label="{{ section.title }} help">
+    <div class="help-head">
+      <strong>{{ section.title }} help</strong>
+      <button type="button" popovertarget="help" popovertargetaction="hide">Close</button>
+    </div>
+    <article class="help-body">{{ help }}</article>
+  </div>
+  {%- endif %}
 </body>
 </html>

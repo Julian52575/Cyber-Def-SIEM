@@ -17,6 +17,7 @@ from my_siem.ssh.log import AuthEvent, AuthKind
 from my_siem.ssh.state import SshState
 from my_siem.web import History
 from my_siem.web.charts import Series, line_chart, nice_ticks
+from my_siem.web.help import command_help, render
 from my_siem.web.sections import (
     SECTIONS,
     http_metrics,
@@ -64,8 +65,8 @@ def test_links_are_relative_so_a_proxy_prefix_works(page: str, root: str) -> Non
 
     html = client.get(page).text
 
-    assert f'href="{root}static/style.css"' in html
-    assert f'src="{root}static/live.js"' in html
+    assert f'href="{root}static/style.css?v=' in html
+    assert f'src="{root}static/live.js?v=' in html
     assert f'href="{root}ui/ssh"' in html
     assert "evil" not in html
 
@@ -276,3 +277,41 @@ def test_http_metrics_count_error_responses() -> None:
 def test_top_counts_skips_empty_values() -> None:
     rows: list[dict[str, Any]] = [{"h": "a"}, {"h": None}, {"h": "b"}, {"h": "a"}]
     assert top_counts(rows, "h") == [("a", 2), ("b", 1)]
+
+
+@pytest.mark.parametrize("command", list(COMMANDS))
+def test_every_command_has_a_readme(command: str) -> None:
+    assert command_help(command) is not None
+
+
+def test_page_opens_the_command_readme_from_a_help_button() -> None:
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
+
+    page = client.get("/ui/ssh").text
+
+    assert 'popovertarget="help"' in page
+    assert 'id="help"' in page and "popover" in page
+    assert "what it reads and how</h1>" in page
+    assert "<table>" in page
+
+
+def test_help_keeps_external_links_and_unlinks_repo_paths() -> None:
+    html = render("[main](../../README.md) [up](#top) [ext](https://example.com)")
+
+    assert "../../README.md" not in html and "main" in html
+    assert 'href="#top"' in html
+    assert 'href="https://example.com"' in html
+
+
+def test_help_escapes_raw_html() -> None:
+    assert XSS not in render(XSS)
+
+
+def test_asset_urls_change_with_their_content() -> None:
+    client = TestClient(create_app({"ssh": SshState({}).snapshot}, HOSTS))
+
+    page = client.get("/ui/ssh").text
+    version = page.split("static/style.css?v=", 1)[1].split('"', 1)[0]
+
+    assert f"static/live.js?v={version}" in page
+    assert client.get(f"/static/style.css?v={version}").status_code == 200
