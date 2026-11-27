@@ -115,7 +115,12 @@ class Dashboard:
         return StreamingResponse(
             events(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-store", **UI_HEADERS},
+            # Stops nginx-style proxies from buffering the stream until it ends.
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                **UI_HEADERS,
+            },
         )
 
     def router(self) -> APIRouter:
